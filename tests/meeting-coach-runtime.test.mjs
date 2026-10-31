@@ -555,13 +555,25 @@ function liveAdaptiveResponse(mode,quote,options={}){
  return {conversationModel:model,decision:{recommendedNextMove:silent?null:move,reason:silent?null:options.reason||'The buyer has raised a point that needs a direct response.',staySilent:silent,priority:options.priority||'normal',evidence:silent?[]:evidence,suggestedWording:mode==='scripted'?null:options.wording||'Ask one clear, grounded follow-up question.',approvedWordingIds:ids}};
 }
 
-test('adaptive response prompt and validator share one exact top-level and required-field contract',()=>{
+test('adaptive prompt, provider JSON Schema, parser and validator share one exact required-field contract',async()=>{
  const messages=adaptive.adaptiveConversationMessages({facts:[],segments:[segment(0,'Our staff need practical support.')],history:[],mode:'consultative',sequence:0}),legacyMessages=adaptive.adaptiveCoachingMessages({facts:[],segments:[segment(0,'Our staff need practical support.')],history:[],mode:'consultative',conversationState:{},opportunity:{}}),system=messages[0].content,contract=JSON.stringify(adaptive.ADAPTIVE_RESPONSE_CONTRACT);
+ const provider=adaptive.ADAPTIVE_PROVIDER_RESPONSE_FORMAT.json_schema.schema;
  assert.ok(system.includes(contract));assert.deepEqual(Array.from(adaptive.ADAPTIVE_RESPONSE_CONTRACT.topLevel),['conversationModel','decision']);assert.match(system,/Do not return adaptiveReasoning or unrelated analysis fields/);assert.doesNotMatch(system,/Return JSON containing adaptiveReasoning/);
  assert.ok(legacyMessages[0].content.includes(contract));assert.doesNotMatch(legacyMessages[0].content,/Return JSON containing adaptiveReasoning/,'legacy exported prompt shares the same parser contract');
+ assert.deepEqual(Array.from(provider.required),Array.from(adaptive.ADAPTIVE_RESPONSE_CONTRACT.topLevel));assert.deepEqual(Array.from(provider.properties.conversationModel.required),Array.from(adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredModel));assert.deepEqual(Array.from(provider.properties.decision.required),Array.from(adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredDecision));
+ assert.equal(adaptive.ADAPTIVE_PROVIDER_RESPONSE_FORMAT.json_schema.strict,false,'optional metadata remains optional in the provider schema');
  const good=liveAdaptiveResponse('consultative','Our staff need practical support.');assert.ok(adaptive.validateAdaptiveDecision(good,[segment(0,'Our staff need practical support.')],'consultative',null,0));
  for(const field of adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredModel)assert.ok(Object.hasOwn(good.conversationModel,field),`parser requires model.${field}`);
  for(const field of adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredDecision)assert.ok(Object.hasOwn(good.decision,field),`parser requires decision.${field}`);
+ const live=await adaptiveLive('Our staff need practical support.','consultative',good),actual=live.requests[0].response_format;
+ assert.equal(JSON.stringify(actual),JSON.stringify(adaptive.ADAPTIVE_PROVIDER_RESPONSE_FORMAT),'the production adaptive request sends the canonical schema');
+});
+
+test('each missing required adaptive field is diagnosed by its exact safe contract path',()=>{
+ const quote='Our staff need practical support.',segments=[segment(0,quote)],base=liveAdaptiveResponse('consultative',quote);
+ for(const field of adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredModel){const value=structuredClone(base);delete value.conversationModel[field];assert.equal(adaptive.classifyAdaptiveResponseFailure(value,segments,'consultative',null,0),'missing_required_field');assert.deepEqual(Array.from(adaptive.missingAdaptiveRequiredFields(value)),[`conversationModel.${field}`]);assert.equal(adaptive.validateAdaptiveDecision(value,segments,'consultative',null,0),null);}
+ for(const field of adaptive.ADAPTIVE_RESPONSE_CONTRACT.requiredDecision){const value=structuredClone(base);delete value.decision[field];assert.equal(adaptive.classifyAdaptiveResponseFailure(value,segments,'consultative',null,0),'missing_required_field');assert.deepEqual(Array.from(adaptive.missingAdaptiveRequiredFields(value)),[`decision.${field}`]);assert.equal(adaptive.validateAdaptiveDecision(value,segments,'consultative',null,0),null);}
+ const topLevel=structuredClone(base);delete topLevel.conversationModel;assert.deepEqual(Array.from(adaptive.missingAdaptiveRequiredFields(topLevel)),['conversationModel']);
 });
 
 test('adaptive response tolerates harmless JSON formatting and missing optional metadata while preserving grounded recommendation',()=>{
@@ -578,6 +590,13 @@ test('adaptive parser diagnoses empty, prose, malformed, truncated and schema-dr
 test('malformed adaptive JSON and provider timeout return recoverable synthetic diagnostics with no raw provider content',async()=>{
  const malformed=await adaptiveLive('Our staff need practical support.','consultative','not JSON from a synthetic provider fixture');assert.equal(malformed.result.analysisError,true);assert.equal(malformed.result.analysis.questions.length,0);assert.ok(malformed.result.coachingTrace.some(event=>event.stage==='generation_failed'&&event.diagnosticClass==='provider_prose_not_json'));assert.doesNotMatch(JSON.stringify(malformed.result.coachingTrace),/not JSON from a synthetic provider fixture/);
  const timeout=await adaptiveLive('Our staff need practical support.','consultative',()=>{const error=Error('private transport detail');error.name='APIConnectionTimeoutError';throw error;});assert.equal(timeout.result.analysisError,true);assert.ok(timeout.result.coachingTrace.some(event=>event.stage==='generation_failed'&&event.diagnosticClass==='provider_timeout'));assert.doesNotMatch(JSON.stringify(timeout.result.coachingTrace),/private transport detail/);
+});
+
+test('synthetic missing-required-field diagnostics name only the missing contract path',async()=>{
+ const quote='Our staff need practical support.',missing=liveAdaptiveResponse('consultative',quote);delete missing.decision.evidence;
+ const result=await adaptiveLive(quote,'consultative',missing),failure=result.result.coachingTrace.find(event=>event.stage==='generation_failed');
+ assert.equal(result.result.analysisError,true);assert.equal(failure.diagnosticClass,'missing_required_field');assert.deepEqual(Array.from(failure.missingFields),['decision.evidence']);
+ assert.doesNotMatch(JSON.stringify(result.result.coachingTrace),/Our staff need practical support\.|Clarify the next useful point/);
 });
 
 test('adaptive safety and provenance fields remain fail-closed with safe failure classifications',()=>{

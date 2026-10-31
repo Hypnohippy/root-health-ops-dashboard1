@@ -113,6 +113,28 @@ export const ADAPTIVE_RESPONSE_CONTRACT={
  evidenceShape:['segmentId','quote'],
  conditionalRequirements:{scriptedNonSilentDecision:['approvedWordingIds']},
 } as const;
+const nonEmptyTextOrNull=()=>({anyOf:[{type:'string'},{type:'null'}]} as const);
+/** Provider-side JSON Schema generated from the same required-field registry used by parsing. */
+export const ADAPTIVE_PROVIDER_RESPONSE_FORMAT={
+ type:'json_schema',
+ json_schema:{
+  name:'adaptive_meeting_coach_response',
+  strict:false,
+  schema:{
+   type:'object',
+   properties:{
+    conversationModel:{type:'object',properties:{
+     version:{type:'integer',enum:[1]},salesMode:{type:'string',enum:salesModes},currentCommercialStage:{type:'string',enum:ADAPTIVE_RESPONSE_CONTRACT.enums.currentCommercialStage},
+     progressAssessment:{type:'string',enum:ADAPTIVE_RESPONSE_CONTRACT.enums.progressAssessment},accumulatedSummary:{type:'string',maxLength:1200},recommendedNextMove:{...nonEmptyTextOrNull(),maxLength:280},staySilent:{type:'boolean'},lastSequence:{type:'integer'},
+    },required:ADAPTIVE_RESPONSE_CONTRACT.requiredModel,additionalProperties:true},
+    decision:{type:'object',properties:{
+     recommendedNextMove:{...nonEmptyTextOrNull(),maxLength:280},staySilent:{type:'boolean'},evidence:{type:'array',maxItems:3,items:{type:'object',properties:{segmentId:{type:'string'},quote:{type:'string'}},required:['segmentId','quote'],additionalProperties:false}},
+     reason:{type:'string',maxLength:240},priority:{type:'string',enum:ADAPTIVE_RESPONSE_CONTRACT.enums.priority},suggestedWording:{type:'string',maxLength:700},approvedWordingIds:{type:'array',maxItems:3,items:{type:'string'}},
+    },required:ADAPTIVE_RESPONSE_CONTRACT.requiredDecision,additionalProperties:true},
+   },required:ADAPTIVE_RESPONSE_CONTRACT.topLevel,additionalProperties:false,
+  },
+ },
+} as const;
 export type AdaptiveResponseFailure='provider_timeout'|'provider_error'|'empty_provider_content'|'provider_prose_not_json'|'json_parse_failure'|'response_truncated'|'schema_drift'|'missing_required_field'|'wrong_enum_value'|'invalid_evidence_reference'|'invalid_playbook_section_id'|'invalid_approved_wording_reference'|'recommendation_not_grounded'|'model_decision_mismatch'|'malformed_structured_output';
 export function parseAdaptiveProviderResponse(content:string|null|undefined,finishReason?:string|null):{value:unknown|null;failure:AdaptiveResponseFailure|null}{
  if(finishReason==='length')return {value:null,failure:'response_truncated'};
@@ -127,7 +149,7 @@ export function classifyAdaptiveResponseFailure(value:unknown,segments:MeetingSe
  if(!row.conversationModel||!row.decision)return 'missing_required_field';
  const model=row.conversationModel as Record<string,unknown>,decision=row.decision as Record<string,unknown>;
  if(!model||typeof model!=='object'||Array.isArray(model)||!decision||typeof decision!=='object'||Array.isArray(decision))return 'malformed_structured_output';
- if(!ADAPTIVE_RESPONSE_CONTRACT.requiredModel.every(key=>key in model)||!ADAPTIVE_RESPONSE_CONTRACT.requiredDecision.every(key=>key in decision))return 'missing_required_field';
+ if(missingAdaptiveRequiredFields(value).length)return 'missing_required_field';
  if(model.salesMode!==mode||!liveStages.has(String(model.currentCommercialStage))||!progressValues.has(String(model.progressAssessment))||!Number.isInteger(model.lastSequence)||sequence!==undefined&&model.lastSequence!==sequence||!['normal','high','critical'].includes(String(decision.priority??'normal')))return 'wrong_enum_value';
  const refs=(items:unknown)=>Array.isArray(items)&&items.some(item=>{if(!item||typeof item!=='object')return true;const ref=item as Record<string,unknown>,source=segments.find(segment=>segment.id===ref.segmentId&&!segment.gap);return typeof ref.segmentId!=='string'||typeof ref.quote!=='string'||!source||!source.text.includes(ref.quote);});
  if(refs(decision.evidence))return 'invalid_evidence_reference';
@@ -137,6 +159,16 @@ export function classifyAdaptiveResponseFailure(value:unknown,segments:MeetingSe
  const allowedWording=new Set([...(playbook?.scriptSteps.map(step=>step.id)||[]),...(playbook?.objectionBranches.map(branch=>branch.id)||[])]);if(Array.isArray(decision.approvedWordingIds)&&decision.approvedWordingIds.some(id=>typeof id!=='string'||!allowedWording.has(id)))return 'invalid_approved_wording_reference';
  if(mode==='scripted'&&!decision.staySilent&&(!Array.isArray(decision.approvedWordingIds)||!decision.approvedWordingIds.length))return 'invalid_approved_wording_reference';
  return 'malformed_structured_output';
+}
+/** Returns contract paths only; never includes model values or transcript content. */
+export function missingAdaptiveRequiredFields(value:unknown):string[]{
+ if(!value||typeof value!=='object'||Array.isArray(value))return [];
+ const row=value as Record<string,unknown>,missing:string[]=[];
+ for(const section of ADAPTIVE_RESPONSE_CONTRACT.topLevel)if(!row[section])missing.push(section);
+ const model=row.conversationModel,decision=row.decision;
+ if(model&&typeof model==='object'&&!Array.isArray(model))for(const field of ADAPTIVE_RESPONSE_CONTRACT.requiredModel)if(!(field in model))missing.push(`conversationModel.${field}`);
+ if(decision&&typeof decision==='object'&&!Array.isArray(decision))for(const field of ADAPTIVE_RESPONSE_CONTRACT.requiredDecision)if(!(field in decision))missing.push(`decision.${field}`);
+ return missing;
 }
 /** Optional fields are normalized safely; this returns only redacted reason codes for diagnostics. */
 export function adaptiveOptionalMetadataIssues(value:unknown,segments:MeetingSegment[],playbook?:SalesPlaybook|null):AdaptiveResponseFailure[]{
