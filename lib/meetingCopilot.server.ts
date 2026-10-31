@@ -1,6 +1,6 @@
 import {buildConversationState,coachingOpportunity,defaultCoachingConfig,deterministicCoachingFallback,inspectLiveCoaching,shouldUseImmediateDeterministicCoaching,supersededSecondMeetingPrompts,verifiedConversationEvidence,type CoachTrace,type CoachOpportunity,type CoachingConfig,type ConversationState} from './meetingCoachRuntime';
 import {PRACTICE_ID,practiceMeeting,meetingCoachingMessages,meetingEmailMessages,coachingHistory,type MeetingFact} from './meetingCoaching';
-import {adaptiveConversationMessages,parseSalesPlaybook,salesModes,validateAdaptiveDecision,validateLiveConversationModel,type LiveConversationModel,type SalesMode,type SalesPlaybook} from './meetingAdaptiveCoach';
+import {adaptiveConversationMessages,classifyAdaptiveResponseFailure,parseAdaptiveProviderResponse,parseSalesPlaybook,salesModes,validateAdaptiveDecision,validateLiveConversationModel,type AdaptiveResponseFailure,type LiveConversationModel,type SalesMode,type SalesPlaybook} from './meetingAdaptiveCoach';
 import {RELATIONSHIP_CALL_PREFIX} from './meetingLaunch';
 import {readMeetingFacts,readMeetingSender} from './meetingCoaching.server';
 import OpenAI from 'openai';
@@ -13,8 +13,9 @@ import {RELATIONSHIP_MODEL} from './relationshipCoach.server';
 const uuid=/^[a-f0-9-]{36}$/i;
 type MeetingSession={id:string;status:string;context:Record<string,unknown>};
 const object=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
-class MeetingAnalysisUnavailable extends Error{constructor(readonly reason:'context_unavailable'|'provider_timeout_or_failure'|'invalid_model_response'){super('Meeting analysis unavailable.');}}
+class MeetingAnalysisUnavailable extends Error{constructor(readonly reason:'context_unavailable'|'provider_timeout_or_failure'|'invalid_model_response',readonly diagnosticClass?:AdaptiveResponseFailure){super('Meeting analysis unavailable.');}}
 function safeAnalysisFailure(error:unknown){return error instanceof MeetingAnalysisUnavailable?error.reason:'analysis_unavailable';}
+function safeProviderFailureClass(error:unknown):AdaptiveResponseFailure{const value=error&&typeof error==='object'?error as {name?:unknown;code?:unknown}:{};return /timeout|timed.?out|etimedout|econnaborted/i.test(`${String(value.name||'')} ${String(value.code||'')}`)?'provider_timeout':'provider_error';}
 function meetingPrepContext(record:Awaited<ReturnType<typeof readOperationalIntelligence>>){
  const research=record.researchAccess?record.approvedResearch.map(row=>{
   const saved=object(object(row.research_snapshot).phase2d),facts=Array.isArray(saved.facts)?saved.facts.map(value=>String(object(value).claim||'')).filter(Boolean).slice(0,8):[];
@@ -48,21 +49,21 @@ export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,
  if(!segments.some(s=>!s.gap&&s.text.trim()))return {analysis:groundedMeetingAnalysis({},segments),tokens:0,emailError:false,coachingTrace:[] as CoachTrace[],resolvedPrompts:[] as string[]};
  let facts:MeetingFact[];try{facts=await readMeetingFacts(t,context);}catch{throw new MeetingAnalysisUnavailable('context_unavailable');}
  const adaptiveMessages=!review&&live.salesMode?adaptiveConversationMessages({facts,segments,history,mode:live.salesMode,playbook:live.playbook,previousModel:live.previousModel,sequence:live.sequence}):null;
- let response;try{response=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:review?1800:live.salesMode?1400:700,response_format:{type:'json_object'},messages:adaptiveMessages||meetingCoachingMessages(facts,segments,review,history,{...live.config,opportunity:live.opportunity,conversationState:live.conversationState})},{timeout:review?45000:6000});}catch{throw new MeetingAnalysisUnavailable('provider_timeout_or_failure');}
- let parsed:unknown;try{parsed=JSON.parse(response.choices[0]?.message.content||'{}');}catch{throw new MeetingAnalysisUnavailable('invalid_model_response');}
+ let response;try{response=await client().chat.completions.create({model:RELATIONSHIP_MODEL,temperature:0.2,max_tokens:review?1800:live.salesMode?1400:700,response_format:{type:'json_object'},messages:adaptiveMessages||meetingCoachingMessages(facts,segments,review,history,{...live.config,opportunity:live.opportunity,conversationState:live.conversationState})},{timeout:review?45000:6000});}catch(error){throw new MeetingAnalysisUnavailable('provider_timeout_or_failure',live.salesMode?safeProviderFailureClass(error):undefined);}
+ const parsedResponse=parseAdaptiveProviderResponse(response.choices[0]?.message.content,response.choices[0]?.finish_reason);if(parsedResponse.failure)throw new MeetingAnalysisUnavailable('invalid_model_response',parsedResponse.failure);const parsed=parsedResponse.value;
   const analysis=groundedMeetingAnalysis(parsed,segments,facts),coachingEvidence=live.groundingSegments||segments;let adaptiveModel:LiveConversationModel|null=null,coaching:{candidates:MeetingCandidate[];trace:CoachTrace[];resolvedPrompts:string[]}|null=null,resolvedPrompts:string[]=[];
   if(!review&&live.salesMode){
     const validated=validateAdaptiveDecision(object(parsed),segments,live.salesMode,live.playbook,live.sequence,live.previousModel);
-   if(!validated)throw new MeetingAnalysisUnavailable('invalid_model_response');
-   adaptiveModel=validated.model;analysis.questions=[];
+   if(!validated)throw new MeetingAnalysisUnavailable('invalid_model_response',classifyAdaptiveResponseFailure(parsed,segments,live.salesMode,live.playbook,live.sequence));
+   adaptiveModel=validated.model;const metadataIssues=validated.optionalMetadataIssues;analysis.questions=[];if(validated.decision.staySilent&&context.synthetic===true&&metadataIssues.length)coaching={candidates:[],trace:[{stage:'adaptive_metadata_sanitized',at:Date.now(),sequence:live.sequence,reason:metadataIssues.join(','),priority:'normal'}],resolvedPrompts:[]};
    if(!validated.decision.staySilent){
     const source=validated.decision.evidence[0];let wording=validated.decision.suggestedWording||undefined;
     if(live.salesMode==='scripted'){
      const approvedId=validated.decision.approvedWordingIds[0],step=live.playbook?.scriptSteps.find(item=>item.id===approvedId),branch=live.playbook?.objectionBranches.find(item=>item.id===approvedId),approved=branch?`Approved response: “${branch.response}”`:step?`Approved ${step.section.replace('_',' ')} wording: “${step.text}”`:null;
-     if(!approved)throw new MeetingAnalysisUnavailable('invalid_model_response');wording=approved;
+     if(!approved)throw new MeetingAnalysisUnavailable('invalid_model_response','invalid_approved_wording_reference');wording=approved;
     }
     const raw={questions:[{text:validated.decision.recommendedNextMove!,wording,goal:validated.decision.recommendedNextMove!,lead:validated.decision.reason||undefined,priority:validated.decision.priority,quote:source.quote,segmentId:source.segmentId,angle:live.salesMode==='scripted'?'criteria':undefined}]};
-     coaching=inspectLiveCoaching(raw,coachingEvidence,facts,history,live.sequence,Date.now(),live.opportunity);analysis.questions=coaching.candidates;
+     coaching=inspectLiveCoaching(raw,coachingEvidence,facts,history,live.sequence,Date.now(),live.opportunity);if(context.synthetic===true&&metadataIssues.length)coaching.trace.push({stage:'adaptive_metadata_sanitized',at:Date.now(),sequence:live.sequence,reason:metadataIssues.join(','),priority:'normal'});if(!coaching.candidates.length)throw new MeetingAnalysisUnavailable('invalid_model_response','recommendation_not_grounded');analysis.questions=coaching.candidates;
    }
     const knownOpen=(live.openPromptIds||[]).filter(id=>history.some(item=>item.promptId===id));
     if(validated.decision.staySilent||coaching?.candidates.length)resolvedPrompts=[...new Set([...resolvedPrompts,...knownOpen])];
@@ -121,7 +122,7 @@ async function coachMeeting(t:RelationshipTenant,s:MeetingSession,body:Record<st
   }else if(opportunity.run){
    const result=await analyzeMeeting(t,s.context,segments,false,history,{sequence,opportunity,config,conversationState,groundingSegments});if('analysis' in result){analysis=result.analysis;tokens=result.tokens;coachingTrace.push(...(result.coachingTrace||[]));resolvedPrompts=[...(result.resolvedPrompts||[])];}
   }else coachingTrace.push({stage:'generation_skipped',at:Date.now(),sequence,reason:opportunity.reason});
- }catch(error){coachingTrace.push({stage:'generation_failed',at:Date.now(),sequence,reason:safeAnalysisFailure(error),priority:opportunity.priority});if(!salesMode&&(opportunity.priority==='high'||opportunity.priority==='critical')){const fallback=inspectLiveCoaching(deterministicCoachingFallback(groundingSegments,opportunity,sequence),groundingSegments,[],history,sequence,Date.now(),opportunity);coachingTrace.push(...fallback.trace,{stage:'generation_fallback',at:Date.now(),sequence,reason:'analysis_unavailable',priority:'critical'});analysis.questions=fallback.candidates;}else analysisError=true;}
+ }catch(error){coachingTrace.push({stage:'generation_failed',at:Date.now(),sequence,reason:safeAnalysisFailure(error),...(s.context?.synthetic===true&&error instanceof MeetingAnalysisUnavailable&&error.diagnosticClass?{diagnosticClass:error.diagnosticClass}:{}),priority:opportunity.priority});if(!salesMode&&(opportunity.priority==='high'||opportunity.priority==='critical')){const fallback=inspectLiveCoaching(deterministicCoachingFallback(groundingSegments,opportunity,sequence),groundingSegments,[],history,sequence,Date.now(),opportunity);coachingTrace.push(...fallback.trace,{stage:'generation_fallback',at:Date.now(),sequence,reason:'analysis_unavailable',priority:'critical'});analysis.questions=fallback.candidates;}else analysisError=true;}
  const {error}=await supabaseAdmin.from('meeting_copilot_usage').update({reasoning_tokens:tokens}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence);if(error)analysisError=true;
  console.info('meeting_coach',JSON.stringify({sessionId:s.id,sequence,events:coachingTrace}));return {analysis,analysisError,conversationModel:adaptiveModel,coachingTrace,resolvedPrompts};
 }async function promote(t:RelationshipTenant,id:string,data:Record<string,unknown>){const {data:result,error}=await supabaseAdmin.rpc('meeting_copilot_promote',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_data:data});if(error)throw Error('Meeting approval was not confirmed. Current appointment, identity, source revision and review must match.');const href=`/dashboard/growth/relationships/workspace_${result.workspaceId}?organisationId=${t.organisationId}`;return {saved:true,...result,href};}
