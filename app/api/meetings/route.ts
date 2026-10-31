@@ -1,0 +1,6 @@
+import {NextResponse} from 'next/server';
+import {withTenantRoute} from '@/lib/tenantRoute.server';
+import {prepareMeeting,meetingRequest,transcribeMeeting} from '@/lib/meetingCopilot.server';
+export const runtime='nodejs';export const maxDuration=120;
+export const GET=withTenantRoute(async(req,t)=>{try{const id=new URL(req.url).searchParams.get('appointmentId');if(!id)throw Error('Select an exact appointment.');return NextResponse.json({success:true,brief:await prepareMeeting(t,id)},{headers:{'Cache-Control':'private, no-store'}});}catch{return NextResponse.json({error:'This exact appointment cannot be prepared. Open the current Diary and review its relationship evidence.'},{status:409});}},{write:false});
+export const POST=withTenantRoute(async(req,t)=>{try{const result=req.headers.get('content-type')?.includes('multipart/form-data')?await transcribeMeeting(t,await req.formData()):await meetingRequest(t,await req.json());return NextResponse.json({success:true,...result},{headers:{'Cache-Control':'private, no-store'}});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Meeting unavailable. Transcript is retained locally.'},{status:409});}},{write:true});
