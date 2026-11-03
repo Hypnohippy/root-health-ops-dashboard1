@@ -105,6 +105,26 @@ export type ScriptLifecycleState='READY_TO_DELIVER'|'TRANSCRIPT_AVAILABLE_FOR_SE
 export type ScriptNavigationContext={currentScriptSection:PlaybookSection|null;currentScriptStepId:string|null;currentScriptStepStatus:ScriptStepStatus;resumeScriptSection:PlaybookSection|null;resumeScriptStepId:string|null;activeAdaptiveRoute:boolean;lifecycleState?:ScriptLifecycleState;deliverySequence?:number|null;responseSequence?:number|null;snapshotId?:string;latestFinalizedSequence?:number;stepStartedAtSequence?:number};
 /** One immutable, sequence-bound view of script delivery and the transcript. Speaker identity is never inferred. */
 export type ScriptedConversationSnapshot={snapshotId:string;requestSequence:number;latestFinalizedSequence:number;currentScriptSection:PlaybookSection;currentScriptStepId:string;currentScriptStepStatus:ScriptStepStatus;stepStartedAtSequence:number;deliverySequence:number|null;responseSequence:number|null;lifecycleState:ScriptLifecycleState;resumeScriptSection:PlaybookSection|null;resumeScriptStepId:string|null;activeAdaptiveRoute:boolean};
+export type ScriptDeliveryReview={delivered:boolean;evidenceSegmentIds:string[];deliverySequence:number|null};
+export const SCRIPT_DELIVERY_REVIEW_RESPONSE_FORMAT={type:'json_schema',json_schema:{name:'script_delivery_review',strict:false,schema:{type:'object',properties:{delivered:{type:'boolean'},evidenceSegmentIds:{type:'array',maxItems:4,items:{type:'string'}}},required:['delivered','evidenceSegmentIds'],additionalProperties:false}}} as const;
+/** A deliberately separate contract: assess seller delivery only; it cannot express a buyer decision or script route. */
+export function scriptDeliveryReviewMessages(input:{playbook:SalesPlaybook;snapshot:ScriptedConversationSnapshot;segments:MeetingSegment[]}){
+ const step=input.playbook.scriptSteps.find(item=>item.id===input.snapshot.currentScriptStepId),transcript=input.segments.filter(row=>!row.gap&&/^\d+$/.test(row.id)&&Number(row.id)>=input.snapshot.stepStartedAtSequence&&Number(row.id)<=input.snapshot.requestSequence).map(row=>({segmentId:row.id,text:row.text}));
+ if(!step)throw Error('The current approved script step is unavailable.');
+ const system='You perform one narrow task for Root Meeting Copilot: decide whether the seller semantically delivered the single supplied approved script step in the supplied finalized transcript. Accept ordinary paraphrase, omissions, fillers, contractions and modest wording variation when intent is clear. Do not require exact wording. Do not count unrelated rapport. The transcript is neutral and does not identify speakers; do not infer who spoke. Do not assess buyer intent, buyer needs, buyer answers, commercial state or next actions. Do not select, advance, recover, bridge or otherwise navigate the script. Return delivered=true only when source evidence supports delivery, with the exact source segment IDs that establish it; otherwise return delivered=false and an empty evidenceSegmentIds array. Use only supplied segment IDs. Return only JSON matching the supplied schema.';
+ return [{role:'system' as const,content:system},{role:'user' as const,content:JSON.stringify({currentApprovedStep:{id:step.id,section:step.section,text:step.text},stepStartedAtSequence:input.snapshot.stepStartedAtSequence,requestSequence:input.snapshot.requestSequence,finalizedTranscript:transcript})}];
+}
+/** Bind semantic delivery to exact finalized, non-gap source IDs and enforce the snapshot chronology. */
+export function validateScriptDeliveryReview(value:unknown,snapshot:ScriptedConversationSnapshot,playbook:SalesPlaybook|null|undefined,segments:MeetingSegment[]):ScriptDeliveryReview|null{
+ if(!value||typeof value!=='object'||Array.isArray(value)||!playbook?.scriptSteps.some(step=>step.id===snapshot.currentScriptStepId))return null;
+ const row=value as Record<string,unknown>;if(typeof row.delivered!=='boolean'||!Array.isArray(row.evidenceSegmentIds)||row.evidenceSegmentIds.length>4)return null;
+ const ids=row.evidenceSegmentIds;if(ids.some(id=>typeof id!=='string')||new Set(ids).size!==ids.length)return null;
+ if(!row.delivered)return ids.length===0?{delivered:false,evidenceSegmentIds:[],deliverySequence:null}:null;
+ if(ids.length===0)return null;
+ const sourceById=new Map(segments.filter(segment=>!segment.gap).map(segment=>[segment.id,segment]));let deliverySequence=-1;
+ for(const id of ids as string[]){const source=sourceById.get(id),numeric=Number(id);if(!source||!/^\d+$/.test(id)||!Number.isInteger(numeric)||numeric<snapshot.stepStartedAtSequence||numeric>snapshot.requestSequence||!source.text.trim())return null;deliverySequence=Math.max(deliverySequence,numeric);}
+ return {delivered:true,evidenceSegmentIds:[...ids] as string[],deliverySequence};
+}
 export function scriptDecisionLatencyMetrics(events:Array<{stage:string;at:number;sequence?:number;preparedDecisionSequence?:number;navigatorVisible?:boolean}>){
  const bySequence=new Map<number,{evidence?:number;reasoning?:number;prepared?:number;turnCompleted?:number;visible?:number}>();
  const rowFor=(sequence:number)=>{let row=bySequence.get(sequence);if(!row){row={};bySequence.set(sequence,row);}return row;};
