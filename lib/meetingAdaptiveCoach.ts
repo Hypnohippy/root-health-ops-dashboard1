@@ -180,6 +180,10 @@ export const ADAPTIVE_RESPONSE_CONTRACT={
 } as const;
 const nonEmptyTextOrNull=()=>({anyOf:[{type:'string'},{type:'null'}]} as const);
 const staySilentFieldSchema={type:'boolean',description:'Immediate action for this response turn, not a persistent conversation posture. This field has exactly the same meaning and value as its paired staySilent field in the other object. true means surface no coaching or approved script wording now; false means surface an actionable response. A validated scripted movement requires false.'} as const;
+const staySilentPairSchema={anyOf:[
+ {properties:{conversationModel:{properties:{staySilent:{enum:[true]}}},decision:{properties:{staySilent:{enum:[true]}}}}},
+ {properties:{conversationModel:{properties:{staySilent:{enum:[false]}}},decision:{properties:{staySilent:{enum:[false]}}}}},
+]} as const;
 /** Provider-side JSON Schema generated from the same required-field registry used by parsing. */
 export const ADAPTIVE_PROVIDER_RESPONSE_FORMAT={
  type:'json_schema',
@@ -188,6 +192,7 @@ export const ADAPTIVE_PROVIDER_RESPONSE_FORMAT={
   strict:false,
   schema:{
    type:'object',
+   allOf:[staySilentPairSchema],
    properties:{
     conversationModel:{type:'object',properties:{
      version:{type:'integer',enum:[1]},salesMode:{type:'string',enum:ADAPTIVE_RESPONSE_CONTRACT.enums.salesMode},currentCommercialStage:{type:'string',enum:ADAPTIVE_RESPONSE_CONTRACT.enums.currentCommercialStage},
