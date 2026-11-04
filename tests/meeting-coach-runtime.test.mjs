@@ -7,6 +7,28 @@ const adaptive=loadMeeting('lib/meetingAdaptiveCoach.ts');
 const segment=(id,text)=>({id:String(id),text,gap:false});
 const candidate=(id,text,quote,angle='outcome')=>({promptId:`${id}:q0`,text,wording:text,goal:'Clarify a useful next step.',quote,segmentId:String(id),angle});
 
+test('scripted latency metrics separate quiet-boundary detection, transcript confirmation, canonical commit and visible render',()=>{
+ const events=[
+  {stage:'script_substantive_evidence_available',at:100,sequence:7},
+  {stage:'adaptive_reasoning_started',at:104,sequence:7},
+  {stage:'script_decision_prepared',at:220,sequence:7},
+  {stage:'script_navigation_canonical_transition_committed',at:230,sequence:7,navigationOwner:'application',transitionType:'canonical'},
+  {stage:'turn_boundary_detected',at:300,sequence:8},
+  {stage:'script_turn_completion_confirmed',at:520,sequence:8,preparedDecisionSequence:7,boundaryDetectedAt:300},
+  {stage:'adaptive_model_navigation_committed',at:524,sequence:7},
+  {stage:'script_navigator_rendered',at:532,sequence:7,preparedDecisionSequence:7,navigatorVisible:true},
+ ];
+ const metrics=adaptive.scriptDecisionLatencyMetrics(events);
+ assert.equal(metrics.medianDetectionToReasoningMs,4);
+ assert.equal(metrics.medianReasoningToPreparedMs,116);
+ assert.equal(metrics.medianDetectionToVisibleMs,432,'the metric reports substantive-evidence detection through visible render');
+ assert.equal(metrics.medianBoundaryDetectionToTurnCompletionMs,220,'the tail-transcription wait ends when the finalized pause confirms the boundary');
+ assert.equal(metrics.medianTurnCompletionToCanonicalCommitMs,4,'canonical commit latency starts after safe turn confirmation');
+ assert.equal(metrics.medianTurnCompletionToVisibleMs,12,'visible latency is measured from safe confirmation, not backdated silence detection');
+ assert.equal(metrics.preparedBeforeTurnCompletionCount,1);
+ assert.equal(adaptive.scriptDecisionLatencyMetrics(events.filter(event=>event.stage!=='script_navigation_canonical_transition_committed')).medianTurnCompletionToCanonicalCommitMs,null,'only application-owned canonical transitions count as canonical commits');
+});
+
 test('playbook parser keeps discovery instructions separate from approved spoken wording and fails closed without speech',()=>{
  const source='# Sales Playbook\n## Opening\nI would like to understand what would make this conversation useful.\n## Discovery\nInstruction:\nAsk naturally, not all at once.\nQuestion: What would a useful outcome look like for your team?\nWhich part would be most important to address first?',playbook=adaptive.parseSalesPlaybook(source),discovery=playbook.scriptSteps.filter(step=>step.section==='discovery');
  assert.equal(playbook.sections.discovery,'Instruction:\nAsk naturally, not all at once.\nQuestion: What would a useful outcome look like for your team?\nWhich part would be most important to address first?','the original section source remains available');
