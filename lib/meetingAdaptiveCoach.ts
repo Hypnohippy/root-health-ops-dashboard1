@@ -13,7 +13,7 @@ export type SalesMode=typeof salesModes[number];
 export type PlaybookSection='opening'|'discovery'|'qualification'|'positioning'|'offer'|'soft_close'|'close'|'objections'|'approved_claims'|'prohibited_claims'|'escalation_rules'|'other';
 export type ScriptBranch={id:string;title:string;objection:string;response:string};
 export type ScriptStep={id:string;section:Exclude<PlaybookSection,'prohibited_claims'|'escalation_rules'|'other'>;text:string};
-export type SalesPlaybook={version:1;sections:Partial<Record<PlaybookSection,string>>;scriptSteps:ScriptStep[];objectionBranches:ScriptBranch[];approvedClaims:string[];prohibitedClaims:string[];escalationRules:string[]};
+export type SalesPlaybook={version:1;sections:Partial<Record<PlaybookSection,string>>;sectionInstructions:Partial<Record<PlaybookSection,string[]>>;scriptSteps:ScriptStep[];objectionBranches:ScriptBranch[];approvedClaims:string[];prohibitedClaims:string[];escalationRules:string[]};
 export type AdaptiveEvidence={segmentId:string;quote:string};
 export type ScriptRouteDirection=typeof scriptRouteDirections[number];
 export type ScriptStepStatus=typeof scriptStepStatuses[number];
@@ -42,6 +42,20 @@ const sectionFor=(heading:string):PlaybookSection=>{
 };
 const clean=(s:string,max=12000)=>s.trim().replace(/\r/g,'').slice(0,max);
 const linesOf=(s:string)=>s.split(/\n+/).map(line=>line.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/,'').trim()).filter(Boolean);
+const instructionLabel=/^(?:instruction|instructions|guidance|seller guidance|coach(?:ing)? note|internal note)\s*:\s*(.*)$/i;
+const spokenLabel=/^(?:seller|say|script|approved wording|approved script|question)\s*:\s*(.+)$/i;
+const editorialDirectiveWithManner=/^(?:ask|say|phrase|keep|avoid|focus(?: on)?|remember|pause|wait|listen|do not|don't)\b[^?]*[,;]\s*(?:not|rather than|instead of)\b/i;
+function classifyPlaybookLines(source:string){
+ const instructions:string[]=[],spoken:string[]=[];let instructionOnNextLine=false;
+ for(const raw of linesOf(source)){
+  if(instructionOnNextLine){instructions.push(clean(raw,500));instructionOnNextLine=false;continue;}
+  const markedInstruction=raw.match(instructionLabel);
+  if(markedInstruction){if(markedInstruction[1].trim())instructions.push(clean(markedInstruction[1],500));else instructionOnNextLine=true;continue;}
+  if(editorialDirectiveWithManner.test(raw)){instructions.push(clean(raw,500));continue;}
+  const markedSpeech=raw.match(spokenLabel);spoken.push(clean(markedSpeech?.[1]||raw,360));
+ }
+ return {instructions,spoken};
+}
 const idFor=(title:string,index:number)=>`${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,48)||'branch'}`;
 function branchFrom(title:string,body:string,index:number):ScriptBranch|null{
  const objection=body.match(/^\s*(?:[-*]\s*)?Objection\s*:\s*([^\n]+)/im)?.[1]?.trim()||title.trim();
@@ -74,17 +88,25 @@ export function parseSalesPlaybook(source:string):SalesPlaybook{
   if(current==='objections'&&branchTitle)branchParts.push(line);else sectionParts.push(line);
  }
  flushSection();
+  const sectionsWithSteps:Exclude<PlaybookSection,'prohibited_claims'|'escalation_rules'|'other'>[]=['opening','discovery','qualification','positioning','offer','soft_close','close','objections','approved_claims'];
+  const sectionInstructions:SalesPlaybook['sectionInstructions']={};
+ const spokenBySection=new Map<PlaybookSection,string[]>();
+  for(const section of sectionsWithSteps.filter(item=>item!=='objections')){
+  const classified=classifyPlaybookLines(sections[section]||'');
+  if(classified.instructions.length)sectionInstructions[section]=classified.instructions;
+  if(classified.instructions.length&&!classified.spoken.length)throw Error(`approved_spoken_wording_missing: ${section}`);
+  spokenBySection.set(section,classified.spoken);
+ }
  const prohibitedClaims=linesOf(sections.prohibited_claims||'').slice(0,40).map(s=>clean(s,240));
- const approvedClaims=linesOf(sections.approved_claims||'').slice(0,40).map(s=>clean(s,240));
+ const approvedClaims=(spokenBySection.get('approved_claims')||linesOf(sections.approved_claims||'')).slice(0,40).map(s=>clean(s,240));
  const escalationRules=linesOf(sections.escalation_rules||'').slice(0,30).map(s=>clean(s,240));
  const prohibitedPhrasePresent=(text:string)=>prohibitedClaims.some(claim=>{const phrase=claim.toLowerCase().replace(/^never (?:say|claim)\s*/,'').replace(/["'“”]/g,'').trim();return phrase.length>=8&&(text.toLowerCase().includes(phrase)||phrase.includes(text.toLowerCase()));});
  const objectionBranches=[...branchDrafts,...inlineObjectionDrafts(sections.objections||'')].flatMap((draft,index)=>{const branch=branchFrom(draft.title,draft.body,index+1);return branch&&!prohibitedPhrasePresent(branch.response)?[branch]:[];}).slice(0,20);
- const sectionsWithSteps:Exclude<PlaybookSection,'prohibited_claims'|'escalation_rules'|'other'>[]=['opening','discovery','qualification','positioning','offer','soft_close','close','objections','approved_claims'];
- const scriptSteps:ScriptStep[]=sectionsWithSteps.flatMap(section=>section==='objections'?[]:linesOf(sections[section]||'').filter(text=>!prohibitedPhrasePresent(text)).map((text,index)=>({id:`${section}-${index+1}`,section,text:clean(text,360)}))).slice(0,80);
- return {version:1,sections,scriptSteps,objectionBranches,approvedClaims,prohibitedClaims,escalationRules};
+ const scriptSteps:ScriptStep[]=sectionsWithSteps.flatMap(section=>section==='objections'?[]:(spokenBySection.get(section)||linesOf(sections[section]||'')).filter(text=>!prohibitedPhrasePresent(text)).map((text,index)=>({id:`${section}-${index+1}`,section,text:clean(text,360)}))).slice(0,80);
+ return {version:1,sections,sectionInstructions,scriptSteps,objectionBranches,approvedClaims,prohibitedClaims,escalationRules};
 }
 
-export function salesPlaybookSummary(playbook:SalesPlaybook){return {version:1,sections:playbook.sections,scriptSteps:playbook.scriptSteps,objectionBranches:playbook.objectionBranches,approvedClaims:playbook.approvedClaims,prohibitedClaims:playbook.prohibitedClaims,escalationRules:playbook.escalationRules};}
+export function salesPlaybookSummary(playbook:SalesPlaybook){return {version:1,sections:playbook.sections,sectionInstructions:playbook.sectionInstructions,scriptSteps:playbook.scriptSteps,objectionBranches:playbook.objectionBranches,approvedClaims:playbook.approvedClaims,prohibitedClaims:playbook.prohibitedClaims,escalationRules:playbook.escalationRules};}
 
 /** Durable, evidence-indexed memory for the live adaptive coach. It is session-only and never promoted. */
 export type ConversationAssertion={text:string;evidence:AdaptiveEvidence[]};
