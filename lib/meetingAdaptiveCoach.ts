@@ -45,13 +45,14 @@ const linesOf=(s:string)=>s.split(/\n+/).map(line=>line.replace(/^\s*(?:[-*+]\s+
 const instructionLabel=/^(?:instruction|instructions|guidance|seller guidance|coach(?:ing)? note|internal note)\s*:\s*(.*)$/i;
 const spokenLabel=/^(?:seller|say|script|approved wording|approved script|question)\s*:\s*(.+)$/i;
 const editorialDirectiveWithManner=/^(?:ask|say|phrase|keep|avoid|focus(?: on)?|remember|pause|wait|listen|do not|don't)\b[^?]*[,;]\s*(?:not|rather than|instead of)\b/i;
+const conditionalUseInstruction=/^(?:(?:use|introduce|present|share|offer|discuss|recommend)\b.{0,100}\b(?:only\s+)?(?:after|when|once|if|unless|until)\b|only\s+(?:use|introduce|present|share|offer|discuss|recommend)\b|(?:do not|don't|never)\s+(?:use|introduce|present|share|offer|discuss|recommend)\b)/i;
 function classifyPlaybookLines(source:string){
  const instructions:string[]=[],spoken:string[]=[];let instructionOnNextLine=false;
  for(const raw of linesOf(source)){
   if(instructionOnNextLine){instructions.push(clean(raw,500));instructionOnNextLine=false;continue;}
   const markedInstruction=raw.match(instructionLabel);
   if(markedInstruction){if(markedInstruction[1].trim())instructions.push(clean(markedInstruction[1],500));else instructionOnNextLine=true;continue;}
-  if(editorialDirectiveWithManner.test(raw)){instructions.push(clean(raw,500));continue;}
+  if(editorialDirectiveWithManner.test(raw)||conditionalUseInstruction.test(raw)){instructions.push(clean(raw,500));continue;}
   const markedSpeech=raw.match(spokenLabel);spoken.push(clean(markedSpeech?.[1]||raw,360));
  }
  return {instructions,spoken};
