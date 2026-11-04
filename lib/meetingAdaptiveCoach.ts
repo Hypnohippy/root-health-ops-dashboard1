@@ -396,8 +396,8 @@ export function validateAdaptiveDecision(value:unknown,segments:MeetingSegment[]
   if(!model)return rejectValidation(diagnostics,'validateAdaptiveDecision','conversation_model_is_valid','conversationModel',row.conversationModel,'valid model contract');
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return rejectValidation(diagnostics,'validateAdaptiveDecision','decision_is_object','decision',raw,'object');const d=raw as Record<string,unknown>;
    const missingDecision=ADAPTIVE_RESPONSE_CONTRACT.requiredDecision.find(key=>!(key in d));if(missingDecision)return rejectValidation(diagnostics,'validateAdaptiveDecision','required_decision_field_present',`decision.${missingDecision}`,undefined,'present');
-   const staySilent=d.staySilent===true,providerMove=textValue(d.recommendedNextMove,280),reason=textValue(d.reason,240)||'Grounded in the current transcript evidence.',priority=ADAPTIVE_RESPONSE_CONTRACT.enums.priority.includes(d.priority as typeof ADAPTIVE_RESPONSE_CONTRACT.enums.priority[number])?d.priority as AdaptiveDecision['priority']:'normal',suggested=textValue(d.suggestedWording,700);
-    const possibleCanonical=mode==='scripted'?deriveCanonicalScriptAction({decision:d,model,evidenceSegments,playbook,context:scriptContext,sequence:Number.isInteger(sequence)?Number(sequence):Number(model.lastSequence)}):null,canonicalAction=possibleCanonical?.navigation.routeDirection==='advance'?possibleCanonical:null,canonicalSequentialAdvance=!!canonicalAction;
+   const providerStaySilent=d.staySilent===true,providerMove=textValue(d.recommendedNextMove,280),reason=textValue(d.reason,240)||'Grounded in the current transcript evidence.',priority=ADAPTIVE_RESPONSE_CONTRACT.enums.priority.includes(d.priority as typeof ADAPTIVE_RESPONSE_CONTRACT.enums.priority[number])?d.priority as AdaptiveDecision['priority']:'normal',suggested=textValue(d.suggestedWording,700);
+    const possibleCanonical=mode==='scripted'?deriveCanonicalScriptAction({decision:d,model,evidenceSegments,playbook,context:scriptContext,sequence:Number.isInteger(sequence)?Number(sequence):Number(model.lastSequence)}):null,canonicalAction=possibleCanonical?.navigation.routeDirection==='advance'?possibleCanonical:null,canonicalSequentialAdvance=!!canonicalAction,staySilent=canonicalSequentialAdvance?false:providerStaySilent;
     if(mode==='scripted'&&scriptContext?.lifecycleState==='BUYER_RESPONSE_RECEIVED'&&!canonicalSequentialAdvance){const ownership=classifyScriptNavigationOwnership(value,evidenceSegments,playbook,scriptContext,Number.isInteger(sequence)?Number(sequence):Number(model.lastSequence));if(ownership.classification==='fail_closed')return rejectValidation(diagnostics,'validateAdaptiveDecision','script_navigation_has_canonical_or_valid_adaptive_owner','decision.scriptNavigation',ownership.reason,'verified canonical progression or an explicit valid adaptive route');}
     let evidence:AdaptiveEvidence[];
     if(canonicalSequentialAdvance)evidence=canonicalAction!.evidence;
@@ -410,7 +410,7 @@ export function validateAdaptiveDecision(value:unknown,segments:MeetingSegment[]
  // A normal scripted continuation is rendered from the approved destination, not from
  // provider-authored move text. Normalize both duplicate move fields before the strict
  // equality check so stale/null model metadata cannot veto a snapshot-derived route.
-   const move=canonicalSequentialAdvance?null:providerMove,validatedModel=canonicalSequentialAdvance?{...model,recommendedNextMove:null}:model;
+  const move=canonicalSequentialAdvance?null:providerMove,validatedModel=canonicalSequentialAdvance?{...model,recommendedNextMove:null,staySilent:model.staySilent===providerStaySilent?false:model.staySilent}:model;
    if(!canonicalSequentialAdvance&&(!Object.hasOwn(row.conversationModel as object,'recommendedNextMove')||!Object.hasOwn(d,'recommendedNextMove')))return rejectValidation(diagnostics,'validateAdaptiveDecision','model_owned_recommendation_fields_present','conversationModel.recommendedNextMove',undefined,'both recommendation fields are required outside an application-derived canonical advance');
  const scriptValue=canonicalAction?.navigation??d.scriptNavigation,decisionEvidence=canonicalAction?.evidence??evidence;
  // Approved wording is application-owned. Provider wording references are accepted only
@@ -422,7 +422,7 @@ export function validateAdaptiveDecision(value:unknown,segments:MeetingSegment[]
    if(!move&&!staySilent&&!canonicalSequentialAdvance)return rejectValidation(diagnostics,'validateAdaptiveDecision','non_silent_decision_has_recommended_move','decision.recommendedNextMove',d.recommendedNextMove,'non-empty text unless the application derives a validated scripted advance');
    if(!staySilent&&!evidence.length)return rejectValidation(diagnostics,'validateAdaptiveDecision','non_silent_decision_has_verified_evidence','decision.evidence','no verified evidence','at least one verified reference');
    // This is one immediate response action duplicated in the provider shape; preserve the strict check.
-   if(model.staySilent!==staySilent)return rejectValidation(diagnostics,'validateAdaptiveDecision','conversation_model_stay_silent_equals_decision_stay_silent','conversationModel.staySilent',model.staySilent,staySilent);
+    if(validatedModel.staySilent!==staySilent)return rejectValidation(diagnostics,'validateAdaptiveDecision','conversation_model_stay_silent_equals_decision_stay_silent','conversationModel.staySilent',validatedModel.staySilent,staySilent);
    if(validatedModel.recommendedNextMove!==move)return rejectValidation(diagnostics,'validateAdaptiveDecision','conversation_model_recommended_next_move_equals_decision_recommended_next_move','conversationModel.recommendedNextMove',validatedModel.recommendedNextMove,move);
    if(sequence!==undefined&&model.lastSequence!==sequence)return rejectValidation(diagnostics,'validateAdaptiveDecision','model_sequence_matches_request','conversationModel.lastSequence',model.lastSequence,sequence);
    if(mode==='scripted'&&staySilent&&hasOpenCommercialWork&&scriptContext?.lifecycleState!=='TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW')return rejectValidation(diagnostics,'validateAdaptiveDecision','scripted_silence_has_no_open_commercial_work','decision.staySilent',staySilent,false);
@@ -472,7 +472,10 @@ function assessCanonicalScriptAction(input:{decision:Record<string,unknown>;mode
  if(context.lifecycleState!=='BUYER_RESPONSE_RECEIVED')return failed(context.lifecycleState?'lifecycle_not_buyer_response_received':'lifecycle_state_missing',{canonicalNextStepResolved:!!next,targetStepId:next?.id||null});
  const groundedAdaptiveSignal=model&&(model.objections.length>0||model.unexpectedRequirements.length>0||model.missedPlaybookRequirements.length>0||!!model.salespersonDrift||model.unresolvedRequirements.length>0&&['repair_missed','local_new_requirement','diagnose_close'].includes(model.selectedRecoveryStrategy));
  if(groundedAdaptiveSignal&&(providerRoute==='advance'||providerRoute==='stay'))return failed('grounded_adaptive_signal_uses_explicit_route',{canonicalNextStepResolved:!!next,adaptiveRoutePresent:true,adaptiveReason:`grounded_signal_${providerRoute}`,targetStepId:providerRoute==='advance'?next?.id||null:null});
- if(decision.staySilent!==false)return failed(typeof decision.staySilent==='boolean'?'provider_selected_silent_action':'immediate_action_missing',{canonicalNextStepResolved:!!next,targetStepId:next?.id||null});
+ // Once the verified snapshot proves a delivered step and a substantive later
+ // buyer response, ordinary sequential movement is application-owned. A
+ // provider's silent posture (or missing adaptive fields) must not veto that
+ // deterministic transition; genuine adaptive signals/routes are checked above.
  const nextResolved=!!next;
  if(!next)return failed(currentIndex===playbook.scriptSteps.length-1?'end_of_script':'malformed_playbook_order',{canonicalNextStepResolved:false});
  const deliverySequence=context.deliverySequence,responseSequence=context.responseSequence;
