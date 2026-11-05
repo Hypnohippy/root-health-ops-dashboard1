@@ -298,6 +298,22 @@ export function hasMaterialAdaptiveEvidence(segments:MeetingSegment[],priorState
  const ids=new Set(segments.filter(segment=>!segment.gap&&segment.text.trim()).map(segment=>segment.id)),state=buildConversationState(segments,priorState);
  return state.materialFacts.some(fact=>ids.has(fact.segmentId))||state.observations.some(hint=>ids.has(hint.segmentId)&&invalidatingHintKinds.has(hint.kind));
 }
+export type SameTurnExtensionDecision={disposition:'reusable_non_material'|'invalidated';reason:'reused_after_non_material_same_turn_extension'|'material_or_adaptive_signal'|'new_or_uncertain_semantic_content'|'missing_same_turn_evidence'};
+const sameTurnKnownNeutralWords=new Set(['a','an','the','i','we','you','they','he','she','it','to','of','for','and','or','but','so','is','are','was','were','be','been','being','do','does','did','what','where','how','who','which','with','about','on','in','at','as','my','our','their','them','his','her','me','us','can','could','would','should','will','just','really','very','actually','there','may','still','yes','yeah','yep','okay','ok','right','exactly','same','that','this','thing','area','mean','meant','mentioned','said','discussed','discussion']);
+const sameTurnAdaptiveSignal=/[?]|\b(?:yes|yeah|yep|no|nope|not|never|stop|cancel|wait|hold on|change my mind|actually|however|although|instead|except|concern(?:ed|s)?|worried|hesitan\w*|confus\w*|unclear|do not understand|don't understand|not sure|no longer|not interested|not ready|not approved|not signed off|no budget|budget|price|cost|expensive|deadline|timeframe|timeline|cannot|can't|won't|wouldn't|doesn't|don't|didn't|isn't|aren't|wasn't|weren't|without|lack(?:s|ing)?|need|require\w*|must have|criteria|priority|important|ready to|move forward|go ahead|book(?:ing)?|buy(?:ing)?|start(?:ing)?|proceed|refus\w*|objection|eap|pilot|proposal|demo|trial|workshop)\b/i;
+const sameTurnMeaningTokens=(value:string)=>value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim().split(/\s+/).filter(token=>token.length>=3&&!sameTurnKnownNeutralWords.has(token));
+/**
+ * Conservative same-turn delta gate. Reuse is limited to repeated/continuing
+ * wording with no new semantic terms or known adaptive cue. Unknown additions
+ * fail closed and keep the fresh reasoning path.
+ */
+export function classifySameTurnSemanticExtension(segments:MeetingSegment[],preparedBuyerEvidence:string,priorState?:unknown):SameTurnExtensionDecision{
+ const speech=segments.filter(segment=>!segment.gap&&segment.text.trim());if(segments.some(segment=>segment.gap)||!speech.length||!preparedBuyerEvidence.trim())return {disposition:'invalidated',reason:'missing_same_turn_evidence'};
+ if(hasMaterialAdaptiveEvidence(speech,priorState)||speech.some(segment=>sameTurnAdaptiveSignal.test(segment.text)))return {disposition:'invalidated',reason:'material_or_adaptive_signal'};
+ const known=new Set([...sameTurnMeaningTokens(preparedBuyerEvidence),...sameTurnKnownNeutralWords]);
+ if(speech.some(segment=>sameTurnMeaningTokens(segment.text).some(token=>!known.has(token))))return {disposition:'invalidated',reason:'new_or_uncertain_semantic_content'};
+ return {disposition:'reusable_non_material',reason:'reused_after_non_material_same_turn_extension'};
+}
 /** Advance a high-priority prompt's freshness window across harmless transcript arrivals; discard it only when new grounded material can change the decision. */
 export function revalidateAdaptivePrompts(state:CoachRuntime,segments:MeetingSegment[],latestTranscriptSequence:number,at=Date.now(),priorConversationState?:unknown):CoachRuntime{
  const s={...state,trace:[...state.trace]};
