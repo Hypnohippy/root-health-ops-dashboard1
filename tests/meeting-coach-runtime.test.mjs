@@ -4,8 +4,49 @@ import fs from 'node:fs';
 import {loadMeeting} from './meeting-copilot-loader.mjs';
 const runtime=loadMeeting('lib/meetingCoachRuntime.ts'),coach=loadMeeting('lib/meetingCoaching.ts'),core=loadMeeting('lib/meetingCopilot.ts');
 const adaptive=loadMeeting('lib/meetingAdaptiveCoach.ts');
+const turns=loadMeeting('lib/meetingConversationTurn.ts');
+const attest=loadMeeting('lib/meetingPracticeTurnAttestation.server.ts');
 const segment=(id,text)=>({id:String(id),text,gap:false});
 const candidate=(id,text,quote,angle='outcome')=>({promptId:`${id}:q0`,text,wording:text,goal:'Clarify a useful next step.',quote,segmentId:String(id),angle});
+
+test('practice conversation turns combine split seller packets while keeping buyer role application-owned',()=>{
+ const seller=turns.finalizeSellerPracticeTurn({id:'seller-opening',order:1,packetSegments:[segment(7,'Set a clear purpose'),segment(8,'for this conversation today.')],startedAt:10,endedAt:20,sourceId:'practice-session'});
+ const buyer=turns.createSyntheticBuyerTurn({id:'buyer-opening',order:2,text:'We want to understand what support could be useful.',at:30});
+ assert.equal(seller.role,'seller');assert.equal(seller.text,'Set a clear purpose for this conversation today.');assert.deepEqual(Array.from(seller.sourceEvidenceIds),['7','8']);assert.equal(seller.boundary,'explicit');
+ assert.equal(buyer.role,'buyer');assert.equal(buyer.provenance.method,'practice_action');
+ assert.deepEqual(JSON.parse(JSON.stringify(turns.conversationTurnsToSegments([seller,buyer]))),[segment(0,seller.text),segment(1,buyer.text)]);
+ assert.equal(turns.validatePracticeTurnSequence([{...buyer,role:'unknown',order:1}]),false);
+ assert.equal(turns.validatePracticeTurnSequence([buyer]),false,'a buyer turn cannot establish seller delivery as the first turn');
+ assert.equal(turns.validatePracticeTurnSequence([seller,{...buyer,provenance:{...buyer.provenance,method:'provider_label'}}]),false,'buyer identity must come from the explicit Practice action, not provider labeling');
+ const messages=adaptive.adaptiveConversationMessages({facts:[],segments:[segment(0,seller.text),segment(1,buyer.text)],history:[],mode:'scripted',sequence:1,practiceTurns:[seller,buyer].map(turn=>({role:turn.role,text:turn.text}))}),request=JSON.parse(messages[1].content);
+ assert.deepEqual(request.practiceFinalizedTurns.map(turn=>turn.role),['seller','buyer']);assert.match(messages[0].content,/never count buyer text as seller delivery/i);
+});
+test('server practice navigation requires explicit role-owned turns for turn-based synthetic sessions',()=>{
+ const seller=turns.finalizeSellerPracticeTurn({id:'seller-1',order:1,packetSegments:[segment(0,'Approved seller wording.')],startedAt:1,endedAt:2,sourceId:'practice-session'}),buyer=turns.createSyntheticBuyerTurn({id:'buyer-1',order:2,text:'We would like to understand the current approach.',at:3}),history=[seller,buyer];
+ assert.equal(turns.isTurnBasedSyntheticPracticeContext({synthetic:true,practiceTurnMode:'turn_based_v1'}),true);
+ assert.equal(turns.isTurnBasedSyntheticPracticeContext({synthetic:true}),false);
+ const accepted=turns.resolvePracticeCoachTurns({synthetic:true,practiceTurnMode:'turn_based_v1'},undefined,history);assert.equal(accepted.mode,'turn_based');assert.deepEqual(Array.from(accepted.turns,turn=>turn.role),['seller','buyer']);
+ assert.equal(turns.resolvePracticeCoachTurns({synthetic:true,practiceTurnMode:'turn_based_v1'},undefined,undefined).mode,'invalid','a client cannot omit practiceMode and fall back to packet-derived navigation');
+ assert.equal(turns.resolvePracticeCoachTurns({synthetic:true},true,undefined).mode,'invalid','the legacy explicit practice flag still fails closed without turns');
+ assert.equal(turns.resolvePracticeCoachTurns({synthetic:true,practiceTurnMode:'turn_based_v1'},undefined,[seller]).mode,'invalid','seller-only history cannot establish a buyer response');
+ assert.equal(turns.resolvePracticeCoachTurns({synthetic:false},true,undefined).mode,'legacy','the real-meeting path remains independent');
+ assert.equal(turns.resolvePracticeCoachTurns({synthetic:true},undefined,undefined).mode,'legacy','unmarked legacy synthetic sessions retain their previous path');
+});
+test('Practice role ownership requires server attestations and rejects altered or caller-invented buyer turns',()=>{
+ const key='test-only-attestation-key',source=segment(7,'Approved seller wording.'),seller=turns.finalizeSellerPracticeTurn({id:'seller-proof',order:1,packetSegments:[source],startedAt:1,endedAt:2,sourceId:'practice-session',packetAttestations:new Map([[source.id,attest.attestPracticeTranscript('practice-session',7,source.text,key)]])}),buyer=turns.createSyntheticBuyerTurn({id:'buyer-proof',order:2,text:'The synthetic prospect response.',at:3}),signed=[attest.attestPracticeTurn('practice-session',seller,key),attest.attestPracticeTurn('practice-session',buyer,key)];
+ assert.equal(attest.isServerAttestedPracticeSequence('practice-session',signed,key),true,'server-issued seller and generated buyer turns pass in their session');
+ assert.equal(attest.isServerAttestedPracticeSequence('another-practice-session',signed,key),false,'signed turn history cannot be replayed across Practice sessions');
+ assert.equal(attest.isServerAttestedPracticeSequence('practice-session',[signed[0],buyer],key),false,'a caller-created buyer without server proof fails');
+ assert.equal(attest.isServerAttestedPracticeSequence('practice-session',[signed[0],{...signed[1],text:'A caller-substituted buyer response.'}],key),false,'editing a generated buyer turn invalidates its proof');
+ assert.equal(attest.isServerAttestedPracticeSequence('practice-session',signed,'different-key'),false,'a proof from another server key fails');
+ assert.equal(attest.verifyPracticeTranscriptEvidence('practice-session',seller.sourceEvidenceIds,seller.text,seller.sourceEvidence,key),true,'seller wording matches signed microphone transcription');
+ assert.equal(attest.verifyPracticeTranscriptEvidence('another-session',seller.sourceEvidenceIds,seller.text,seller.sourceEvidence,key),false,'a transcript receipt cannot be replayed across sessions');
+ assert.equal(attest.verifyPracticeTranscriptEvidence('practice-session',seller.sourceEvidenceIds,'Substituted seller wording.',seller.sourceEvidence,key),false,'edited seller text fails the exact source transcript binding');
+});
+test('practice seller transcript gaps fail closed and cannot become complete delivery turns',()=>{
+ const seller=turns.finalizeSellerPracticeTurn({id:'seller-gap',order:1,packetSegments:[segment(3,'Set a clear purpose'),{id:'4',text:'transcription unavailable',gap:true}],startedAt:1,endedAt:2,sourceId:'practice-session'});
+ assert.equal(seller.integrity,'gap');assert.equal(turns.validatePracticeTurnSequence([seller]),false);
+});
 
 test('scripted latency metrics separate quiet-boundary detection, transcript confirmation, canonical commit and visible render',()=>{
  const events=[
