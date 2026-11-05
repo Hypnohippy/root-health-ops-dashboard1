@@ -176,7 +176,7 @@ export function scriptDecisionLatencyMetrics(events:Array<{stage:string;at:numbe
 /** A later finalized suffix may be harmless, but it must not change the script state or substantive response the decision was based on. */
 export function isScriptedSnapshotSemanticallyCurrent(original:ScriptedConversationSnapshot|null|undefined,current:ScriptedConversationSnapshot|null|undefined):boolean{
  if(!original||!current||!['TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW','BUYER_RESPONSE_RECEIVED'].includes(original.lifecycleState)||!['TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW','BUYER_RESPONSE_RECEIVED'].includes(current.lifecycleState)||current.responseSequence!==original.responseSequence||current.requestSequence<original.requestSequence||current.latestFinalizedSequence<original.latestFinalizedSequence)return false;
- if(original.lifecycleState==='TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW'&&original.responseSequence!==original.requestSequence)return false;
+ if(original.lifecycleState==='TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW'&&(!Number.isInteger(original.responseSequence)||original.responseSequence!>original.requestSequence||!Number.isInteger(current.responseSequence)||current.responseSequence!>current.requestSequence))return false;
  if(original.lifecycleState==='BUYER_RESPONSE_RECEIVED'&&(!Number.isInteger(original.responseSequence)||original.responseSequence! > original.requestSequence||!Number.isInteger(current.responseSequence)||current.responseSequence! > current.requestSequence))return false;
  return original.currentScriptSection===current.currentScriptSection&&original.currentScriptStepId===current.currentScriptStepId&&original.currentScriptStepStatus===current.currentScriptStepStatus&&original.stepStartedAtSequence===current.stepStartedAtSequence&&original.deliverySequence===current.deliverySequence&&original.resumeScriptSection===current.resumeScriptSection&&original.resumeScriptStepId===current.resumeScriptStepId&&original.activeAdaptiveRoute===current.activeAdaptiveRoute;
 }
@@ -189,13 +189,21 @@ const substantiveStopwords=new Set(['a','an','the','i','we','you','they','he','s
 const substantiveTokens=(text:string)=>text.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(token=>token.length>=3&&!substantiveStopwords.has(token));
 export const isSubstantivePostDeliveryUtterance=(text:string)=>substantiveTokens(text).length>=3;
 const numericSequence=(segment:MeetingSegment)=>/^\d+$/.test(segment.id)?Number(segment.id):-1;
+/** A stable delivery review requires every captured sequence in the utterance and no failed transcription gaps. */
+export function scriptDeliveryReviewWindow(segments:MeetingSegment[],startSequence:number,boundarySequence:number){
+ const rows=new Map(segments.filter(row=>numericSequence(row)>=0).map(row=>[numericSequence(row),row]));
+ const missingSequenceIds:number[]=[],gapSequenceIds:number[]=[],window:MeetingSegment[]=[];
+ if(!Number.isInteger(startSequence)||!Number.isInteger(boundarySequence)||startSequence<0||boundarySequence<startSequence)return {complete:false,missingSequenceIds:[startSequence],gapSequenceIds,segments:window};
+ for(let sequence=startSequence;sequence<=boundarySequence;sequence++){const row=rows.get(sequence);if(!row){missingSequenceIds.push(sequence);continue;}window.push(row);if(row.gap)gapSequenceIds.push(sequence);}
+ return {complete:missingSequenceIds.length===0&&gapSequenceIds.length===0,missingSequenceIds,gapSequenceIds,segments:window};
+}
 /** Build from finalised rows only. A response is a later substantive utterance; its speaker remains unverified. */
 export function createScriptedConversationSnapshot(input:{playbook:SalesPlaybook|null|undefined;segments:MeetingSegment[];requestSequence:number;currentScriptSection:PlaybookSection|null;currentScriptStepId:string|null;currentScriptStepStatus:ScriptStepStatus;stepStartedAtSequence:number;deliverySequence:number|null;resumeScriptSection:PlaybookSection|null;resumeScriptStepId:string|null;activeAdaptiveRoute:boolean}):ScriptedConversationSnapshot|null{
  const playbook=input.playbook,step=playbook?.scriptSteps.find(item=>item.id===input.currentScriptStepId);if(!playbook||!step||step.section!==input.currentScriptSection||input.requestSequence<0)return null;
  const rows=input.segments.filter(row=>numericSequence(row)>=0),latestFinalizedSequence=Math.max(-1,...rows.map(numericSequence));if(latestFinalizedSequence!==input.requestSequence)return null;
   let deliverySequence:number|null=null;
   if(input.deliverySequence!==null&&Number.isInteger(input.deliverySequence)&&input.deliverySequence>=input.stepStartedAtSequence&&input.deliverySequence<=input.requestSequence&&rows.some(row=>!row.gap&&numericSequence(row)===input.deliverySequence))deliverySequence=input.deliverySequence;
-  const candidateRows=rows.filter(row=>!row.gap&&numericSequence(row)>=input.stepStartedAtSequence&&numericSequence(row)<=input.requestSequence&&isSubstantivePostDeliveryUtterance(row.text)),candidate=candidateRows.length>=2?candidateRows.at(-1):undefined;
+  const candidateRows=rows.filter(row=>!row.gap&&numericSequence(row)>=input.stepStartedAtSequence&&numericSequence(row)<=input.requestSequence&&isSubstantivePostDeliveryUtterance(row.text)),candidate=candidateRows.at(-1);
   const response=deliverySequence===null?candidate:rows.filter(row=>!row.gap&&numericSequence(row)>deliverySequence!&&numericSequence(row)<=input.requestSequence&&isSubstantivePostDeliveryUtterance(row.text)).at(-1);
   const lifecycleState:ScriptLifecycleState=deliverySequence===null?(candidate?'TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW':'READY_TO_DELIVER'):response?'BUYER_RESPONSE_RECEIVED':'DELIVERED_WAITING_FOR_BUYER',responseSequence=response?numericSequence(response):null;
  const status:ScriptStepStatus=deliverySequence===null?'not_started':input.currentScriptStepStatus==='answered'?'answered':'asked_waiting';
@@ -213,7 +221,7 @@ export function verifyScriptedConversationSnapshot(value:unknown,playbook:SalesP
 /** A scripted cycle may use the newest substantive buyer response even when a later finalized packet is silence. */
 export function isScriptSnapshotEligibleForNavigation(snapshot:ScriptedConversationSnapshot|null|undefined,sequence:number):boolean{
  return !!snapshot&&snapshot.requestSequence===sequence&&snapshot.latestFinalizedSequence===sequence&&(
-  snapshot.lifecycleState==='TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW'&&snapshot.deliverySequence===null&&snapshot.responseSequence===sequence||
+  snapshot.lifecycleState==='TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW'&&snapshot.deliverySequence===null&&Number.isInteger(snapshot.responseSequence)&&snapshot.responseSequence!<=sequence||
   snapshot.lifecycleState==='BUYER_RESPONSE_RECEIVED'&&Number.isInteger(snapshot.deliverySequence)&&Number.isInteger(snapshot.responseSequence)&&snapshot.deliverySequence! < snapshot.responseSequence!&&snapshot.responseSequence! <= sequence
  );
 }
