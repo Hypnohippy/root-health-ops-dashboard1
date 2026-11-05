@@ -29,6 +29,24 @@ test('scripted latency metrics separate quiet-boundary detection, transcript con
  assert.equal(adaptive.scriptDecisionLatencyMetrics(events.filter(event=>event.stage!=='script_navigation_canonical_transition_committed')).medianTurnCompletionToCanonicalCommitMs,null,'only application-owned canonical transitions count as canonical commits');
 });
 
+test('scripted latency metrics separate immediate navigator render from later viewport visibility',()=>{
+ const events=[
+  {stage:'script_substantive_evidence_available',at:100,sequence:7},
+  {stage:'adaptive_reasoning_started',at:104,sequence:7},
+  {stage:'script_decision_prepared',at:200,sequence:7},
+  {stage:'script_navigation_canonical_transition_committed',at:220,sequence:7,navigationOwner:'application',transitionType:'canonical'},
+  {stage:'script_turn_completion_confirmed',at:210,sequence:8,preparedDecisionSequence:7,boundaryDetectedAt:180},
+  {stage:'adaptive_model_navigation_committed',at:224,sequence:7},
+  {stage:'script_navigator_rendered',at:230,sequence:7,preparedDecisionSequence:7,navigatorVisible:false},
+  {stage:'script_navigator_rendered',at:30200,sequence:7,preparedDecisionSequence:7,navigatorVisible:true},
+ ];
+ const metrics=adaptive.scriptDecisionLatencyMetrics(events);
+ assert.equal(metrics.medianTurnCompletionToRenderMs,20,'React render occurs promptly after the confirmed turn');
+ assert.equal(metrics.medianCanonicalCommitToRenderMs,6,'canonical state commit is followed by render without a model-sized delay');
+ assert.equal(metrics.medianRenderToViewportVisibleMs,29970,'viewport visibility is reported separately from React render');
+ assert.equal(metrics.medianTurnCompletionToVisibleMs,29990,'the legacy visibility metric remains viewport-based and must not be called render latency');
+});
+
 test('playbook parser keeps discovery instructions separate from approved spoken wording and fails closed without speech',()=>{
  const source='# Sales Playbook\n## Opening\nI would like to understand what would make this conversation useful.\n## Discovery\nInstruction:\nAsk naturally, not all at once.\nQuestion: What would a useful outcome look like for your team?\nWhich part would be most important to address first?',playbook=adaptive.parseSalesPlaybook(source),discovery=playbook.scriptSteps.filter(step=>step.section==='discovery');
  assert.equal(playbook.sections.discovery,'Instruction:\nAsk naturally, not all at once.\nQuestion: What would a useful outcome look like for your team?\nWhich part would be most important to address first?','the original section source remains available');
@@ -58,6 +76,14 @@ test('script snapshots expose semantic-review candidates while only server-valid
  const response={decision:{staySilent:false,scriptNavigation:{currentScriptStepId:'opening-1',currentScriptStepStatus:'answered',routeDirection:'advance',targetType:'step',targetId:'discovery-1'},approvedWordingIds:['opening-1']}},contract=adaptive.adaptiveScriptResponseDiagnostics(response,playbook,adaptive.scriptContextFromSnapshot(verified));assert.equal(contract.provider.approvedWordingIds[0],'opening-1');assert.deepEqual(Array.from(contract.expected.allowedTargetIds),['discovery-1']);assert.deepEqual(Array.from(contract.expected.approvedWordingIds),['discovery-1']);assert.equal(contract.expected.lifecycleState,'BUYER_RESPONSE_RECEIVED');assert.equal(JSON.stringify(contract).includes(answeredRows[2].text),false,'safe mismatch diagnostics do not expose transcript text');
  assert.ok(verified);assert.equal(adaptive.verifyScriptedConversationSnapshot({...answered,lifecycleState:'READY_TO_DELIVER'},playbook,answeredRows,2),null,'server rejects a client lifecycle that does not match the same finalized transcript');
  const gapRows=[...deliveredRows,{...segment(2,''),gap:true}],gap=adaptive.createScriptedConversationSnapshot({...base,segments:gapRows,requestSequence:2,currentScriptStepStatus:'asked_waiting',deliverySequence:1});assert.equal(gap.lifecycleState,'DELIVERED_WAITING_FOR_BUYER','a gap/silence recheck cannot be a response');
+});
+
+test('script delivery snapshot treats adjacent below-threshold transcript packets as one candidate span',()=>{
+ const playbook=adaptive.parseSalesPlaybook('# Playbook\n## Discovery\nWhat are you currently doing around employee wellbeing?'),step=playbook.scriptSteps[0],segments=[segment(0,'What are you currently doing around'),segment(1,'employee wellbeing?')],snapshot=adaptive.createScriptedConversationSnapshot({playbook,segments,requestSequence:1,currentScriptSection:'discovery',currentScriptStepId:step.id,currentScriptStepStatus:'not_started',stepStartedAtSequence:0,deliverySequence:null,resumeScriptSection:null,resumeScriptStepId:null,activeAdaptiveRoute:false});
+ assert.equal(snapshot.lifecycleState,'TRANSCRIPT_AVAILABLE_FOR_SEMANTIC_REVIEW','adjacent fragments are assessed as the frozen utterance, without adding any identity claim');
+ assert.equal(snapshot.responseSequence,1,'the candidate points to the last packet in the bounded delivery span');
+ assert.equal(adaptive.isScriptSnapshotEligibleForNavigation(snapshot,1),true,'semantic delivery assessment may run, while delivery validation still controls any state change');
+ assert.equal(adaptive.validateScriptDeliveryReview({delivered:true,assessment:'matched',evidenceSegmentIds:['0','1']},snapshot,playbook,segments).delivered,true,'the two source-backed packet IDs may jointly support the approved wording');
 });
 test('delivery review windows require contiguous finalized packet IDs and permit one substantive packet after a stable boundary',()=>{
  const playbook=adaptive.parseSalesPlaybook('# Playbook\n## Opening\nThanks for taking the time; I will keep this simple and explain the purpose.\n## Discovery\nWhat outcome matters?'),opening=playbook.scriptSteps[0],onePacket=[segment(0,'Thanks for taking the time; I will keep this simple and explain the purpose.'),segment(1,'')],window=adaptive.scriptDeliveryReviewWindow(onePacket,0,1),snapshot=adaptive.createScriptedConversationSnapshot({playbook,segments:window.segments,requestSequence:1,currentScriptSection:'opening',currentScriptStepId:opening.id,currentScriptStepStatus:'not_started',stepStartedAtSequence:0,deliverySequence:null,resumeScriptSection:null,resumeScriptStepId:null,activeAdaptiveRoute:false});
