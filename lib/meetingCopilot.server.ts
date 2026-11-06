@@ -8,10 +8,11 @@ import {supabaseAdmin} from './supabaseAdmin';
 import {readDiary} from './diary.server';
 import {readOperationalIntelligence} from './operationalIntelligence.server';
 import {type RelationshipTenant} from './relationshipWorkspace.server';
-import {meetingAttachment,meetingSegments,groundedMeetingAnalysis,wavSeconds,meetingEvidenceKey,type MeetingSegment,type MeetingCandidate} from './meetingCopilot';
+import {meetingAttachment,meetingSegments,groundedMeetingAnalysis,wavSeconds,meetingEvidenceKey,PRACTICE_MIN_CHECKPOINT_AUDIO_MS,type MeetingSegment,type MeetingCandidate} from './meetingCopilot';
 import {createSyntheticBuyerTurn,hasSubstantiveSellerSpeech,isConversationTurn,isTurnBasedSyntheticPracticeContext,resolvePracticeCoachTurns,conversationTurnsToSegments,type ConversationTurn} from './meetingConversationTurn';
 import {attestPracticeTranscript,attestPracticeTurn,isServerAttestedPracticeSequence,verifyPracticeTranscriptEvidence} from './meetingPracticeTurnAttestation.server';
 import {RELATIONSHIP_MODEL} from './relationshipCoach.server';
+import {classifyMeetingTranscriptionFailure,MeetingTranscriptionError,type MeetingTranscriptionDiagnosticCode} from './meetingTranscriptionDiagnostics';
 const uuid=/^[a-f0-9-]{36}$/i;
 type MeetingSession={id:string;status:string;context:Record<string,unknown>};
 const object=(value:unknown):Record<string,unknown>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{};
@@ -58,7 +59,7 @@ export async function prepareMeeting(tenant:RelationshipTenant,id:string){
  const after=await supabaseAdmin.from('lifecycle_revisions').select('revision').eq('organisation_id',tenant.organisationId).maybeSingle();if(after.error||String(before.data?.revision)!==String(after.data?.revision))throw Error('Appointment evidence changed; reload.');
  return {lifecycleRevision:String(after.data?.revision||0),kind:record.relationship.kind,workspaceId:record.workspace?.id||null,canFounder:record.researchAccess,meetingContext:meetingPrepContext(record),meetingObjective:null,knownNextStep:record.relationship.nextAction,attachment,evidence,name:record.relationship.name||item.title,revision:record.workspace?.revision??null,refs:record.relationship.refs};
 }
-async function command(t:RelationshipTenant,id:string,kind:string,data:Record<string,unknown>){const result=await supabaseAdmin.rpc('meeting_copilot_command',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_command:kind,p_data:data});if(result.error)throw Error('Meeting capture is unavailable for this workspace or its allowance has been reached. Your transcript remains available; nothing was sent to your contact.');return result.data;}
+async function command(t:RelationshipTenant,id:string,kind:string,data:Record<string,unknown>){const result=await supabaseAdmin.rpc('meeting_copilot_command',{p_org:t.organisationId,p_actor:t.userId,p_id:id,p_command:kind,p_data:data});if(result.error){if(kind==='reserve')throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('reservation',{reservationCode:result.error.code}),'Audio packet reservation conflicted. No transcription was accepted.');throw Error('Meeting capture is unavailable for this workspace or its allowance has been reached. Your transcript remains available; nothing was sent to your contact.');}return result.data;}
 async function session(t:RelationshipTenant,id:unknown){if(typeof id!=='string'||!uuid.test(id))throw Error('Meeting unavailable.');const {data,error}=await supabaseAdmin.from('meeting_copilot_sessions').select('*').eq('id',id).eq('organisation_id',t.organisationId).eq('user_id',t.userId).maybeSingle();if(error||!data)throw Error('Meeting unavailable.');return data;}
 const client=()=>{if(!process.env.OPENAI_API_KEY)throw Error('Meeting AI is currently unavailable.');return new OpenAI({apiKey:process.env.OPENAI_API_KEY,timeout:45000,maxRetries:0});};
 export async function analyzeMeeting(t:RelationshipTenant,context:Record<string,unknown>,segments:MeetingSegment[],review:boolean,history:MeetingCandidate[]=[],live:{sequence:number;opportunity:CoachOpportunity;config:CoachingConfig;conversationState?:ConversationState;groundingSegments?:MeetingSegment[];salesMode?:SalesMode;playbook?:SalesPlaybook|null;previousModel?:LiveConversationModel|null;scriptContext?:ScriptNavigationContext|null;scriptSnapshot?:ScriptedConversationSnapshot|null;openPromptIds?:string[];practiceTurns?:ConversationTurn[]}={sequence:-1,opportunity:{run:true,signals:[],reason:'direct'},config:defaultCoachingConfig}){
@@ -170,15 +171,25 @@ export async function meetingRequest(t:RelationshipTenant,body:Record<string,unk
  throw Error('Unsupported meeting operation.');
 }
 export async function transcribeMeeting(t:RelationshipTenant,form:FormData){
- const requestStartedAt=Date.now(),id=form.get('id'),sessionLookupStartedAt=Date.now(),s=await session(t,id),sessionLookupMs=Date.now()-sessionLookupStartedAt,sequence=Number(form.get('sequence')),audio=form.get('audio');
- if(s.status!=='live'||!(audio instanceof File)||!Number.isInteger(sequence)||sequence<0||sequence>600)throw Error('Invalid microphone chunk.');
- const bytes=await audio.arrayBuffer(),seconds=wavSeconds(bytes),reserveStartedAt=Date.now();await command(t,s.id,'reserve',{sequence,seconds});const reservationMs=Date.now()-reserveStartedAt;
- const providerStartedAt=Date.now(),transcription=await client().audio.transcriptions.create({model:'gpt-transcribe',file:new File([bytes],'meeting.wav',{type:'audio/wav'})}).catch(()=>{throw Error('Transcription failed. The captured segment is retained for an explicit transcript gap; no missing speech was invented.');}),providerMs=Date.now()-providerStartedAt;
- const usageWriteStartedAt=Date.now(),usage=(transcription as unknown as {usage?:{total_tokens?:number}}).usage,{error}=await supabaseAdmin.from('meeting_copilot_usage').update({transcription_tokens:Number.isInteger(usage?.total_tokens)?usage!.total_tokens:null}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence),usageWriteMs=Date.now()-usageWriteStartedAt;
- const practiceTiming=isTurnBasedSyntheticPracticeContext(s.context)?{serverTotalMs:Date.now()-requestStartedAt,sessionLookupMs,reservationMs,providerMs,usageWriteMs,audioDurationMs:Math.max(0,Math.round(seconds*1000))}:undefined;
+ const requestStartedAt=Date.now(),id=form.get('id'),sequence=Number(form.get('sequence')),audio=form.get('audio'),sessionLookupStartedAt=Date.now();
+ let s:MeetingSession;
+ try{s=await session(t,id);}catch{throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('session'),'The authorized meeting session is unavailable.');}
+ const sessionLookupMs=Date.now()-sessionLookupStartedAt;
+ if(s.status!=='live')throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('session'),'The authorized meeting session is no longer live.');
+ if(!(audio instanceof File)||!Number.isInteger(sequence)||sequence<0||sequence>600)throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('input'),'A valid captured audio packet is required.');
+ let bytes:ArrayBuffer,seconds:number;
+ try{bytes=await audio.arrayBuffer();seconds=wavSeconds(bytes);}catch{throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('input'),'The captured audio packet is invalid.');}
+ const audioDurationMs=Math.max(0,(bytes.byteLength-44)/48);
+ if(audioDurationMs<PRACTICE_MIN_CHECKPOINT_AUDIO_MS)throw new MeetingTranscriptionError(classifyMeetingTranscriptionFailure('input'),'The captured audio packet is too short to transcribe.');
+ const reserveStartedAt=Date.now();
+ try{await command(t,s.id,'reserve',{sequence,seconds});}catch(error){if(error instanceof MeetingTranscriptionError)throw error;throw new MeetingTranscriptionError('reservation_conflict','Audio packet reservation conflicted.');}
+ const reservationMs=Date.now()-reserveStartedAt,providerStartedAt=Date.now();
+ let transcription:Awaited<ReturnType<ReturnType<typeof client>['audio']['transcriptions']['create']>>;
+ try{transcription=await client().audio.transcriptions.create({model:'gpt-transcribe',file:new File([bytes],'meeting.wav',{type:'audio/wav'})});}catch(error){const status=error&&typeof error==='object'&&'status'in error?Number((error as {status?:unknown}).status):0;const diagnosticCode:MeetingTranscriptionDiagnosticCode=classifyMeetingTranscriptionFailure('provider',{status});throw new MeetingTranscriptionError(diagnosticCode,'Audio transcription was rejected or unavailable. The captured segment was not converted to text.');}
+ const providerMs=Date.now()-providerStartedAt,usageWriteStartedAt=Date.now(),usage=(transcription as unknown as {usage?:{total_tokens?:number}}).usage,{error}=await supabaseAdmin.from('meeting_copilot_usage').update({transcription_tokens:Number.isInteger(usage?.total_tokens)?usage!.total_tokens:null}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence),usageWriteMs=Date.now()-usageWriteStartedAt;
+ const practiceTiming=isTurnBasedSyntheticPracticeContext(s.context)?{serverTotalMs:Date.now()-requestStartedAt,sessionLookupMs,reservationMs,providerMs,usageWriteMs,audioDurationMs:Math.round(audioDurationMs)}:undefined;
  return {text:transcription.text,seconds,transcriptionUsageError:!!error,...(practiceTiming?{practiceTranscriptionTiming:practiceTiming}:{}),...(practiceTiming?{practiceTranscriptAttestation:attestPracticeTranscript(s.id,sequence,transcription.text,process.env.SUPABASE_SERVICE_ROLE_KEY||'')}: {})};
 }
-
 async function coachMeeting(t:RelationshipTenant,s:MeetingSession,body:Record<string,unknown>){
  if(s.status!=='live')throw Error('Live coaching ended with microphone capture.');
   const practiceInput=resolvePracticeCoachTurns(s.context,body.practiceMode,body.practiceTurns);if(practiceInput.mode==='invalid')throw Error('Practice navigation requires complete seller and synthetic buyer turns.');const practiceTurns=practiceInput.mode==='turn_based'?practiceInput.turns:undefined;if(practiceTurns&&!isServerAttestedPracticeSequence(s.id,practiceTurns,process.env.SUPABASE_SERVICE_ROLE_KEY||''))throw Error('Practice navigation requires server-verified seller and synthetic buyer turns.');
