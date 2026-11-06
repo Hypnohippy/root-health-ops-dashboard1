@@ -169,10 +169,14 @@ export async function meetingRequest(t:RelationshipTenant,body:Record<string,unk
  }
  throw Error('Unsupported meeting operation.');
 }
-export async function transcribeMeeting(t:RelationshipTenant,form:FormData){const id=form.get('id'),s=await session(t,id),sequence=Number(form.get('sequence')),audio=form.get('audio');if(s.status!=='live'||!(audio instanceof File)||!Number.isInteger(sequence)||sequence<0||sequence>600)throw Error('Invalid microphone chunk.');const bytes=await audio.arrayBuffer(),seconds=wavSeconds(bytes);await command(t,s.id,'reserve',{sequence,seconds});
- const transcription=await client().audio.transcriptions.create({model:'gpt-transcribe',file:new File([bytes],'meeting.wav',{type:'audio/wav'})}).catch(()=>{throw Error('Transcription failed. The captured segment is retained for an explicit transcript gap; no missing speech was invented.');});
- const usage=(transcription as unknown as {usage?:{total_tokens?:number}}).usage,{error}=await supabaseAdmin.from('meeting_copilot_usage').update({transcription_tokens:Number.isInteger(usage?.total_tokens)?usage!.total_tokens:null}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence);
- return {text:transcription.text,seconds,transcriptionUsageError:!!error,...(isTurnBasedSyntheticPracticeContext(s.context)?{practiceTranscriptAttestation:attestPracticeTranscript(s.id,sequence,transcription.text,process.env.SUPABASE_SERVICE_ROLE_KEY||'')}: {})};
+export async function transcribeMeeting(t:RelationshipTenant,form:FormData){
+ const requestStartedAt=Date.now(),id=form.get('id'),sessionLookupStartedAt=Date.now(),s=await session(t,id),sessionLookupMs=Date.now()-sessionLookupStartedAt,sequence=Number(form.get('sequence')),audio=form.get('audio');
+ if(s.status!=='live'||!(audio instanceof File)||!Number.isInteger(sequence)||sequence<0||sequence>600)throw Error('Invalid microphone chunk.');
+ const bytes=await audio.arrayBuffer(),seconds=wavSeconds(bytes),reserveStartedAt=Date.now();await command(t,s.id,'reserve',{sequence,seconds});const reservationMs=Date.now()-reserveStartedAt;
+ const providerStartedAt=Date.now(),transcription=await client().audio.transcriptions.create({model:'gpt-transcribe',file:new File([bytes],'meeting.wav',{type:'audio/wav'})}).catch(()=>{throw Error('Transcription failed. The captured segment is retained for an explicit transcript gap; no missing speech was invented.');}),providerMs=Date.now()-providerStartedAt;
+ const usageWriteStartedAt=Date.now(),usage=(transcription as unknown as {usage?:{total_tokens?:number}}).usage,{error}=await supabaseAdmin.from('meeting_copilot_usage').update({transcription_tokens:Number.isInteger(usage?.total_tokens)?usage!.total_tokens:null}).eq('organisation_id',t.organisationId).eq('user_id',t.userId).eq('session_id',s.id).eq('sequence',sequence),usageWriteMs=Date.now()-usageWriteStartedAt;
+ const practiceTiming=isTurnBasedSyntheticPracticeContext(s.context)?{serverTotalMs:Date.now()-requestStartedAt,sessionLookupMs,reservationMs,providerMs,usageWriteMs,audioDurationMs:Math.max(0,Math.round(seconds*1000))}:undefined;
+ return {text:transcription.text,seconds,transcriptionUsageError:!!error,...(practiceTiming?{practiceTranscriptionTiming:practiceTiming}:{}),...(practiceTiming?{practiceTranscriptAttestation:attestPracticeTranscript(s.id,sequence,transcription.text,process.env.SUPABASE_SERVICE_ROLE_KEY||'')}: {})};
 }
 
 async function coachMeeting(t:RelationshipTenant,s:MeetingSession,body:Record<string,unknown>){
