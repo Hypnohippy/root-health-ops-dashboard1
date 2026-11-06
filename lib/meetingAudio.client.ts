@@ -1,7 +1,9 @@
 import {pcmWav} from './meetingCopilot';
 /** Six 5-second packets bound transient in-memory backlog to 30 seconds. */
 export const MAX_PENDING_AUDIO_CHUNKS=6;
-export async function startMeetingMicrophone(onChunk:(audio:Blob,pauseDetectedAt?:number)=>void,onFailure:(message:string)=>void,signal?:AbortSignal,onAudioActivity?:()=>void){
+export const PRACTICE_ENDPOINT_SILENCE_MS=1400;
+export const PRACTICE_ENDPOINT_SETTLE_MS=250;
+export async function startMeetingMicrophone(onChunk:(audio:Blob,pauseDetectedAt?:number)=>void,onFailure:(message:string)=>void,signal?:AbortSignal,onAudioActivity?:()=>void,onPracticeEndpoint?:()=>void,options:{practiceEndpointSilenceMs?:number}={}){
  // Resume from the explicit Start gesture, before permission/network awaits lose activation.
  const context=new AudioContext({sampleRate:24000});let stream:MediaStream|undefined,finished=false;
  let rejectStartup:(error:Error)=>void=()=>{};
@@ -18,10 +20,10 @@ export async function startMeetingMicrophone(onChunk:(audio:Blob,pauseDetectedAt
   await Promise.race([ready(),blocked]);
   if(signal?.aborted)throw Error('Microphone start cancelled.');
   clearTimeout(timeout);signal?.removeEventListener('abort',cancel);
-  const source=context.createMediaStreamSource(stream!),node=new AudioWorkletNode(context,'meeting-pcm'),silent=context.createGain();silent.gain.value=0;source.connect(node);node.connect(silent);silent.connect(context.destination);
+  const source=context.createMediaStreamSource(stream!),node=new AudioWorkletNode(context,'meeting-pcm'),silent=context.createGain();silent.gain.value=0;if(options.practiceEndpointSilenceMs!==undefined)node.port.postMessage({type:'configure_practice_endpoint',silenceMs:options.practiceEndpointSilenceMs});source.connect(node);node.connect(silent);silent.connect(context.destination);
   let failureReported=false;const fail=(message:string)=>{if(failureReported)return;failureReported=true;onFailure(message);};
   const floatSamples=(value:unknown):Float32Array|null=>Object.prototype.toString.call(value)==='[object Float32Array]'&&typeof (value as Float32Array).length==='number'?new Float32Array(value as Float32Array):null;let turnFlushResolve:(()=>void)|null=null,turnFlushReject:((error:Error)=>void)|null=null;
-  node.port.onmessage=e=>{const data=e.data;if(data?.type==='audio_activity'){onAudioActivity?.();return;}if(data?.type==='flush_complete'){turnFlushResolve?.();return;}const samples=floatSamples(data?.type==='silence_pause'||data?.type==='explicit_turn_flush'?data.samples:data);if(samples?.length)onChunk(new Blob([pcmWav(samples,24000)],{type:'audio/wav'}),data?.type==='silence_pause'?Date.now():undefined);};
+  node.port.onmessage=e=>{const data=e.data;if(data?.type==='audio_activity'){onAudioActivity?.();return;}if(data?.type==='practice_endpoint'){const samples=floatSamples(data.samples);if(samples?.length)onChunk(new Blob([pcmWav(samples,24000)],{type:'audio/wav'}));onPracticeEndpoint?.();return;}if(data?.type==='flush_complete'){turnFlushResolve?.();return;}const samples=floatSamples(data?.type==='silence_pause'||data?.type==='explicit_turn_flush'?data.samples:data);if(samples?.length)onChunk(new Blob([pcmWav(samples,24000)],{type:'audio/wav'}),data?.type==='silence_pause'?Date.now():undefined);};
   node.port.onmessageerror=()=>{turnFlushReject?.(Error('The microphone did not confirm the explicit Practice turn boundary. This turn cannot be used for script delivery.'));fail('Microphone audio could not be delivered to transcription. End and restart the meeting before continuing.');};
   node.onprocessorerror=()=>fail('Microphone audio processing stopped unexpectedly. End and restart the meeting before continuing.');
   const disconnect=()=>stream!.getTracks().forEach(t=>{t.onended=null;t.stop();});

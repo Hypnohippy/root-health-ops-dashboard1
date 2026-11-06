@@ -16,6 +16,11 @@ export type ConversationTurn={
  sourceEvidence?:{id:string;text:string;serverAttestation:string}[];
 };
 
+/** A transcript made only of hesitation sounds is not a seller turn for Practice. */
+export function hasSubstantiveSellerSpeech(value:unknown):value is string {
+ if(typeof value!=='string')return false;const tokens=value.toLocaleLowerCase('en').match(/[\p{L}\p{N}]+/gu)||[];return tokens.some(token=>!/^(?:um+|uh+|erm+|er+|hmm+)$/.test(token));
+}
+
 const roles=new Set<ConversationTurnRole>(['seller','buyer','unknown']);
 const methods=new Set<ConversationTurn['provenance']['method']>(['practice_action','separate_channel','provider_label','diarization','unknown']);
 
@@ -26,9 +31,9 @@ export function isConversationTurn(value:unknown):value is ConversationTurn {
 }
 
 /** Build turns in application-owned order; audio packet IDs remain source evidence only. */
-export function finalizeSellerPracticeTurn(input:{id:string;order:number;packetSegments:MeetingSegment[];startedAt:number|null;endedAt:number;sourceId:string;packetAttestations?:Map<string,string>}):ConversationTurn {
+export function finalizeSellerPracticeTurn(input:{id:string;order:number;packetSegments:MeetingSegment[];startedAt:number|null;endedAt:number;sourceId:string;packetAttestations?:Map<string,string>;boundary?:'confirmed'|'explicit'}):ConversationTurn {
  const ordered=[...input.packetSegments],text=ordered.filter(row=>!row.gap).map(row=>row.text.trim()).filter(Boolean).join(' ').trim();
- const turn:ConversationTurn={id:input.id,order:input.order,role:'seller',text,startedAt:input.startedAt,endedAt:input.endedAt,finalized:true,boundary:'explicit',sourceEvidenceIds:ordered.map(row=>row.id),integrity:ordered.some(row=>row.gap)?'gap':'complete',provenance:{sourceId:input.sourceId,method:'practice_action',confidence:null},sourceEvidence:ordered.map(row=>({id:row.id,text:row.text,serverAttestation:input.packetAttestations?.get(row.id)||''}))};
+ const turn:ConversationTurn={id:input.id,order:input.order,role:'seller',text,startedAt:input.startedAt,endedAt:input.endedAt,finalized:true,boundary:input.boundary||'explicit',sourceEvidenceIds:ordered.map(row=>row.id),integrity:ordered.some(row=>row.gap)?'gap':'complete',provenance:{sourceId:input.sourceId,method:'practice_action',confidence:null},sourceEvidence:ordered.map(row=>({id:row.id,text:row.text,serverAttestation:input.packetAttestations?.get(row.id)||''}))};
  if(!isConversationTurn(turn))throw Error('Seller practice turn is invalid.');
  return turn;
 }
@@ -43,7 +48,7 @@ export function validatePracticeTurnSequence(value:unknown):value is Conversatio
  if(!Array.isArray(value)||value.length>300||!value.every(isConversationTurn))return false;
  const ids=new Set<string>();for(let index=0;index<value.length;index++){
   const turn=value[index] as ConversationTurn;
-  if(ids.has(turn.id)||turn.order!==index+1||turn.role==='unknown'||turn.integrity!=='complete'||turn.boundary!=='explicit'||turn.provenance.method!=='practice_action'||index===0&&turn.role!=='seller')return false;ids.add(turn.id);
+  if(ids.has(turn.id)||turn.order!==index+1||turn.role==='unknown'||turn.integrity!=='complete'||turn.role==='buyer'&&turn.boundary!=='explicit'||turn.provenance.method!=='practice_action'||index===0&&turn.role!=='seller')return false;ids.add(turn.id);
   if(index>0){const previous=value[index-1] as ConversationTurn;if(turn.role===previous.role||turn.startedAt!==null&&previous.endedAt!==null&&turn.startedAt<previous.endedAt)return false;}
  }
  return true;

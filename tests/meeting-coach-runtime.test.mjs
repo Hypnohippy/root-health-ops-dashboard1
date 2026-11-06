@@ -9,6 +9,11 @@ const attest=loadMeeting('lib/meetingPracticeTurnAttestation.server.ts');
 const segment=(id,text)=>({id:String(id),text,gap:false});
 const candidate=(id,text,quote,angle='outcome')=>({promptId:`${id}:q0`,text,wording:text,goal:'Clarify a useful next step.',quote,segmentId:String(id),angle});
 
+test('Practice treats hesitation-only recognition as no substantive seller turn without grading delivery quality',()=>{
+ for(const hesitation of ['um...','Uh, erm.','hmmm'])assert.equal(turns.hasSubstantiveSellerSpeech(hesitation),false,`${hesitation} is hesitation only`);
+ for(const reply of ['Yes.','No, not this quarter.','Okay, let us explore that.','The sentence is incomplete so far.'])assert.equal(turns.hasSubstantiveSellerSpeech(reply),true,`${reply} remains valid seller speech regardless of delivery quality`);
+});
+
 test('practice conversation turns combine split seller packets while keeping buyer role application-owned',()=>{
  const seller=turns.finalizeSellerPracticeTurn({id:'seller-opening',order:1,packetSegments:[segment(7,'Set a clear purpose'),segment(8,'for this conversation today.')],startedAt:10,endedAt:20,sourceId:'practice-session'});
  const buyer=turns.createSyntheticBuyerTurn({id:'buyer-opening',order:2,text:'We want to understand what support could be useful.',at:30});
@@ -31,6 +36,12 @@ test('server practice navigation requires explicit role-owned turns for turn-bas
  assert.equal(turns.resolvePracticeCoachTurns({synthetic:true,practiceTurnMode:'turn_based_v1'},undefined,[seller]).mode,'invalid','seller-only history cannot establish a buyer response');
  assert.equal(turns.resolvePracticeCoachTurns({synthetic:false},true,undefined).mode,'legacy','the real-meeting path remains independent');
  assert.equal(turns.resolvePracticeCoachTurns({synthetic:true},undefined,undefined).mode,'legacy','unmarked legacy synthetic sessions retain their previous path');
+});
+test('automatic endpoint confirms seller boundaries while synthetic buyer turns remain explicit',()=>{
+ const seller=turns.finalizeSellerPracticeTurn({id:'seller-auto',order:1,packetSegments:[segment(0,'A natural seller answer.')],startedAt:10,endedAt:20,sourceId:'practice-session',boundary:'confirmed'}),buyer=turns.createSyntheticBuyerTurn({id:'buyer-auto',order:2,text:'A grounded fictional buyer answer.',at:20}),signed=[seller,buyer];
+ assert.equal(seller.boundary,'confirmed');assert.equal(turns.validatePracticeTurnSequence(signed),true,'automatic endpoint is a valid seller-turn boundary');
+ assert.equal(turns.validatePracticeTurnSequence([seller,{...buyer,boundary:'confirmed'}]),false,'buyer provenance remains an explicit application action');
+ assert.equal(turns.validatePracticeTurnSequence([seller,{...buyer,role:'unknown'}]),false,'unknown role still fails closed');
 });
 test('Practice role ownership requires server attestations and rejects altered or caller-invented buyer turns',()=>{
  const key='test-only-attestation-key',source=segment(7,'Approved seller wording.'),seller=turns.finalizeSellerPracticeTurn({id:'seller-proof',order:1,packetSegments:[source],startedAt:1,endedAt:2,sourceId:'practice-session',packetAttestations:new Map([[source.id,attest.attestPracticeTranscript('practice-session',7,source.text,key)]])}),buyer=turns.createSyntheticBuyerTurn({id:'buyer-proof',order:2,text:'The synthetic prospect response.',at:3}),signed=[attest.attestPracticeTurn('practice-session',seller,key),attest.attestPracticeTurn('practice-session',buyer,key)];
