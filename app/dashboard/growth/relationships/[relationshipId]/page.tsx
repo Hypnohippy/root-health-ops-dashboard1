@@ -1,11 +1,16 @@
 import { requireOrganisation } from "@/lib/tenantAuth";
 import { readOperationalIntelligence } from "@/lib/operationalIntelligence.server";
+import { readDiary } from "@/lib/diary.server";
+import { upcomingRelationshipMeetings } from "@/lib/meetingLaunch";
 import RelationshipDetail from "../components/RelationshipDetail";
 export const dynamic="force-dynamic";
 export default async function RelationshipPage({params,searchParams}:{params:Promise<{relationshipId:string}>;searchParams:Promise<{organisationId?:string}>}) {
  const [p,q]=await Promise.all([params,searchParams]),tenant=await requireOrganisation(q.organisationId,false);
+ const diaryPromise=readDiary(tenant).catch(()=>null);
  let data:Awaited<ReturnType<typeof readOperationalIntelligence>>|null=null,error="";
  try{data=await readOperationalIntelligence(tenant,p.relationshipId);}catch(e){error=e instanceof Error?e.message:"Unable to resolve this relationship safely.";}
  if(!data)return <main className="p-8"><h1 className="text-2xl">Relationship unavailable</h1><p role="alert" className="my-4">{error}</p><a className="underline" href={`/dashboard/growth/relationships?organisationId=${tenant.organisationId}`}>Find a relationship</a></main>;
- return <RelationshipDetail key={p.relationshipId} organisationId={tenant.organisationId} locator={p.relationshipId} initial={data}/>;
+ let meetingAppointments:ReturnType<typeof upcomingRelationshipMeetings>=[];
+ try{if(data.relationship.contactId){const diary=await diaryPromise;if(diary)meetingAppointments=upcomingRelationshipMeetings(diary.items,tenant.organisationId,data.relationship.contactId,Date.parse(diary.asOf));}}catch{/* Relationship context remains usable; a failed Diary read will not invent an appointment. */}
+ return <RelationshipDetail key={p.relationshipId} organisationId={tenant.organisationId} locator={p.relationshipId} initial={data} meetingAppointments={meetingAppointments}/>;
 }
