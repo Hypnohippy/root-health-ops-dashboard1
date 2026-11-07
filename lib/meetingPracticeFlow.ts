@@ -1,4 +1,4 @@
-import type {SalesPlaybook} from './meetingAdaptiveCoach';
+import type {SalesPlaybook,ScriptNavigation} from './meetingAdaptiveCoach';
 
 export type PracticeBuyerClassification='normal_response'|'objection'|'direct_question'|'clear_acceptance'|'not_ready'|'clear_rejection';
 export type PracticeQuestionSource='playbook_step'|'approved_claim'|'safe_fallback';
@@ -32,7 +32,10 @@ export type PracticeQuestionBridge={
  sourceIds:string[];
  supportingText:string|null;
  recoveryRequired?:boolean;
+ recoveryCount?:number;
 };
+export type PracticeScriptCoverageStatus='not_covered'|'partially_covered'|'covered'|'explicitly_delivered';
+export type PracticeScriptCoverageRecord={stepId:string;status:PracticeScriptCoverageStatus;sellerTurnId:string;sourceIds:string[];bridgeOrRouteId:string;reason:string;evidenceText:string;confidence:number};
 export type PracticeTerminalOutcome='interested_follow_up'|'not_ready'|'declined';
 export type PracticeTerminalPhase='active'|'close_pending'|'practice_complete'|'rejected'|'recoverable_failure';
 
@@ -108,7 +111,7 @@ function repetitionSimilarity(candidate:string,reference:string):number{
  return overlap/Math.min(a.size,b.size);
 }
 function makesInformativeProgress(candidate:string,question:string){const candidateTokens=new Set(tokens(candidate)),questionTokens=new Set(tokens(question));const repeatsQuestion=questionTokens.size>=3&&repetitionSimilarity(candidate,question)>=0.72;return !repeatsQuestion&&[...candidateTokens].filter(token=>!questionTokens.has(token)).length>=3;}
-const fallbackAnswer="I don't want to guess at that. It may be more useful to first understand what is happening in your team, then see what the approved information can support.";
+const fallbackAnswer="I don’t want to guess or overstate that. What would be most useful for you to understand first, so I can answer accurately?";
 export const MAX_PRACTICE_QUESTION_BRIDGE_TURNS=3;
 
 /** Mark that the seller has delivered the current bridge answer; an exhausted fallback must not loop. */
@@ -124,7 +127,70 @@ export function canContinuePracticeQuestionBridge(bridge:PracticeQuestionBridge|
 /** Keep an unsupported direct buyer question visible as a handoff instead of resuming unrelated script wording. */
 export function createPracticeQuestionRecovery(bridge:PracticeQuestionBridge,question:string):PracticeQuestionBridge{
  const previousAnswer=bridge.questionResolutionState==='awaiting_buyer'?{question:bridge.latestQuestion,answer:bridge.approvedQuestionResponse,sourceType:bridge.sourceType,sourceId:bridge.sourceId,sourceIds:bridge.sourceIds,supportingText:bridge.supportingText}:null;
- return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,approvedQuestionResponse:'Pause here: the approved playbook does not support an answer to Alex’s question. Do not guess or move to an unrelated script line; clarify with David before continuing.',questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
+ const recoveryCount=(bridge.recoveryCount||0)+1;
+ const recoveryWording=[
+  'I don’t want to guess or overstate that. What would be most useful for you to understand first, so I can answer accurately?',
+  'I’d rather give you a properly grounded answer than speculate. Which part would be most useful to explore first?',
+  'I can’t answer that accurately from the approved information yet. Let’s stay with what we can establish: what is the main issue you want to address?'
+ ][Math.min(recoveryCount,2)];
+ return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
+}
+
+const coverageStopWords=new Set(['about','after','again','also','and','are','around','because','been','being','between','but','can','could','does','doing','each','from','have','here','how','into','just','more','most','much','need','needs','our','over','same','some','such','than','that','the','their','them','then','there','these','they','this','those','through','what','when','where','which','while','who','will','with','would','your','you','for','its']);
+function coverageTokens(value:string){return [...new Set(value.toLowerCase().split(/[^a-z0-9]+/).map(normalizeToken).filter(token=>token.length>2&&!coverageStopWords.has(token)))];}
+function coverageOverlap(candidate:string,reference:string){const a=coverageTokens(candidate),b=new Set(coverageTokens(reference));return {matched:a.filter(token=>b.has(token)),candidateCount:a.length,referenceCount:b.size};}
+
+/** Coverage requires an explicit approved source ID, source-text alignment, and seller transcript support. */
+export function assessPracticeScriptCoverage(input:{step:{id:string;text:string};sourceIds:string[];supportingText:string|null;sellerTurn:{id:string;text:string};bridgeOrRouteId:string}):PracticeScriptCoverageRecord|null{
+ if(!input.sourceIds.includes(input.step.id)||!input.supportingText)return null;
+ const support=coverageTokens(input.supportingText),stepMatch=coverageOverlap(input.supportingText,input.step.text),sellerMatch=coverageOverlap(input.sellerTurn.text,input.supportingText);
+ if(support.length<4||stepMatch.matched.length<4||stepMatch.matched.length/Math.max(1,support.length)<0.7||sellerMatch.matched.length<3)return null;
+ const confidence=Number((sellerMatch.matched.length/Math.max(1,support.length)).toFixed(3));
+ const status:PracticeScriptCoverageStatus=confidence>=0.9?'explicitly_delivered':confidence>=0.64?'covered':'partially_covered';
+ return {stepId:input.step.id,status,sellerTurnId:input.sellerTurn.id,sourceIds:[...input.sourceIds],bridgeOrRouteId:input.bridgeOrRouteId,reason:'seller_turn_delivered_source_backed_script_objective',evidenceText:input.sellerTurn.text,confidence};
+}
+
+/** Assess only playbook steps explicitly identified as approved sources for the bridge response. */
+export function assessPracticeBridgeCoverage(playbook:SalesPlaybook,bridge:PracticeQuestionBridge,sellerTurn:{id:string;text:string}):PracticeScriptCoverageRecord[]{
+ if(bridge.sourceType==='safe_fallback'||!bridge.supportingText)return [];
+ return playbook.scriptSteps.flatMap(step=>{const record=assessPracticeScriptCoverage({step,sourceIds:bridge.sourceIds,supportingText:bridge.supportingText,sellerTurn,bridgeOrRouteId:bridge.bridgeId});return record?[record]:[];});
+}
+
+/** Only an application-owned forward transition can skip a future step, and only with source-backed completed coverage. */
+export function skipCoveredPracticeSteps(navigation:ScriptNavigation,playbook:SalesPlaybook,coverage:Record<string,PracticeScriptCoverageRecord>):{navigation:ScriptNavigation;skipped:PracticeScriptCoverageRecord[];allRemainingCovered:boolean}{
+ if(navigation.routeDirection!=='advance'||navigation.activeAdaptiveRoute||navigation.approvedScriptBranchId)return {navigation,skipped:[],allRemainingCovered:false};
+ let index=playbook.scriptSteps.findIndex(step=>step.id===navigation.scriptStepId);if(index<0)return {navigation,skipped:[],allRemainingCovered:false};
+ const skipped:PracticeScriptCoverageRecord[]=[];
+ while(index<playbook.scriptSteps.length){const step=playbook.scriptSteps[index],record=coverage[step.id];if(!record||!['covered','explicitly_delivered'].includes(record.status))break;skipped.push(record);index++;}
+ if(!skipped.length)return {navigation,skipped,allRemainingCovered:false};
+ if(index>=playbook.scriptSteps.length)return {navigation,skipped,allRemainingCovered:true};
+ const target=playbook.scriptSteps[index],next=playbook.scriptSteps[index+1]||null;
+ return {navigation:{...navigation,currentScriptSection:target.section,recommendedScriptSection:target.section,scriptStepId:target.id,currentScriptStepId:target.id,visibleScriptText:target.text,staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false,nextSequentialScriptStepId:next?.id||null,approvedScriptBranchId:null,activeAdaptiveRoute:false,adaptiveOverride:false,resumeScriptSection:null,resumeScriptStepId:null,routeReason:`Skip ${skipped.map(record=>record.stepId).join(', ')} because source-backed seller turns already covered those script objectives.`},skipped,allRemainingCovered:false};
+}
+
+export function practiceBuyerResponseWithinDefaultBudget(text:string,explicitScenarioNeed=false){
+ const value=text.trim(),sentences=value.split(/(?<=[.!?])\s+/).filter(Boolean);
+ return !!value&&value.length<=(explicitScenarioNeed?1200:520)&&sentences.length<=(explicitScenarioNeed?6:3);
+}
+
+export function summarizePracticeLatency(events:Array<{turnOrder?:number;latencyStage?:string;at?:number}>){
+ const perTurn=new Map<number,Record<string,number>>();for(const event of events){if(!Number.isInteger(event.turnOrder)||typeof event.latencyStage!=='string'||!Number.isFinite(event.at))continue;const marks=perTurn.get(event.turnOrder as number)||{};marks[event.latencyStage]=event.at as number;perTurn.set(event.turnOrder as number,marks);}
+ const pairs:{key:string;from:string;to:string}[]=[
+  {key:'speechToEndpointMs',from:'last_seller_speech_activity',to:'silence_threshold_reached'},
+  {key:'endpointToSettleCompleteMs',from:'silence_threshold_reached',to:'settle_window_completed'},
+  {key:'settleToFinalPacketMs',from:'settle_window_completed',to:'final_required_packet_available'},
+  {key:'finalPacketToSellerTurnMs',from:'final_required_packet_available',to:'seller_turn_assembled'},
+  {key:'sellerValidationMs',from:'seller_turn_assembled',to:'seller_integrity_validated'},
+  {key:'sellerToBuyerGenerationMs',from:'seller_integrity_validated',to:'buyer_generation_started'},
+  {key:'buyerGenerationMs',from:'buyer_generation_started',to:'buyer_generation_completed'},
+  {key:'buyerTextToAudioStartMs',from:'buyer_turn_finalized',to:'buyer_audio_started'},
+  {key:'buyerAudioPlaybackMs',from:'buyer_audio_started',to:'buyer_audio_completed'},
+  {key:'buyerEndToHandoverCompleteMs',from:'buyer_audio_completed',to:'practice_handover_complete'},
+  {key:'buyerEndToNextWordingVisibleMs',from:'buyer_audio_completed',to:'next_wording_first_visible'},
+  {key:'buyerEndToListeningMs',from:'buyer_audio_completed',to:'seller_listening_resumed'}
+ ];
+ const quantile=(values:number[],p:number)=>{if(!values.length)return null;const sorted=[...values].sort((a,b)=>a-b);if(p===0.5&&sorted.length%2===0)return (sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;return sorted[Math.max(0,Math.ceil(p*sorted.length)-1)];};
+ return Object.fromEntries(pairs.map(pair=>{const values=[...perTurn.values()].filter(marks=>Number.isFinite(marks[pair.from])&&Number.isFinite(marks[pair.to])).map(marks=>Math.max(0,marks[pair.to]-marks[pair.from]));return [pair.key,{sampleCount:values.length,medianMs:quantile(values,0.5),p95Ms:quantile(values,0.95)}];}));
 }
 
 /** Selects relevant exact source text from the whole uploaded playbook/approved-claim set. */

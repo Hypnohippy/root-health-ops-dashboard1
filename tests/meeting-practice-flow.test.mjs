@@ -103,7 +103,7 @@ Common bottlenecks include approvals, handoffs, and delayed updates.`);
  const bridge=flow.createPracticeQuestionBridge({question:'What bottlenecks do you mean?',playbook:repeatedPlaybook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-repeat',previousSellerText:delivered});
  assert.equal(bridge.sourceType,'safe_fallback');
  assert.equal(bridge.resolutionState,'exhausted');
- assert.match(bridge.approvedQuestionResponse,/don't want to guess/i);
+ assert.match(bridge.approvedQuestionResponse,/don.t want to guess/i);
 });
 
 test('unsupported questions fail safely and the same bridge is bounded after the fallback is delivered',()=>{
@@ -129,7 +129,8 @@ test('unsupported direct question after a delivered fallback enters visible reco
  assert.equal(recovery.fallbackDelivered,true);
  assert.equal(recovery.sourceType,'safe_fallback');
  assert.notEqual(recovery.approvedQuestionResponse,first.approvedQuestionResponse,'recovery is a distinct handoff instruction, not a repeated answer');
- assert.match(recovery.approvedQuestionResponse,/Pause here/);
+ assert.match(recovery.approvedQuestionResponse,/which part would be most useful to explore first|what would be most useful for you to understand first/i);
+ assert.doesNotMatch(recovery.approvedQuestionResponse,/David|ask David|pause here/i);
  assert.equal(flow.canContinuePracticeQuestionBridge(recovery),false);
 });
 
@@ -154,7 +155,7 @@ test('bridge answers are bounded and exhaustion emits one final non-claiming fal
  assert.equal(finalFallback.bridgeId,first.bridgeId);
  assert.equal(finalFallback.suspendedScriptStepId,'opening-1');
  assert.equal(finalFallback.sourceType,'safe_fallback');
- assert.match(finalFallback.approvedQuestionResponse,/don't want to guess/i);
+ assert.match(finalFallback.approvedQuestionResponse,/don.t want to guess/i);
  assert.equal(flow.canContinuePracticeQuestionBridge(flow.markPracticeQuestionBridgeAnswerSubmitted(finalFallback)),false);
 });
 
@@ -191,7 +192,7 @@ test('unsupported question uses a safe non-claiming answer rather than inventing
  assert.equal(bridge.sourceType,'safe_fallback');
  assert.equal(bridge.sourceId,null);
  assert.equal(bridge.supportingText,null);
- assert.match(bridge.approvedQuestionResponse,/don't want to guess/i);
+ assert.match(bridge.approvedQuestionResponse,/don.t want to guess/i);
  assert.doesNotMatch(bridge.approvedQuestionResponse,/guarantee|pricing|integration|customer/i);
 });
 
@@ -214,4 +215,64 @@ test('only the final soft-close section is a scripted terminal; short discovery 
  assert.equal(flow.isPracticeSoftCloseTerminalStep(discoveryOnly.at(-1),discoveryOnly),false);
  assert.equal(flow.isPracticeSoftCloseTerminalStep(softClose.at(-1),softClose),true);
  assert.equal(flow.isPracticeSoftCloseTerminalStep(softClose[1],softClose),false);
+});
+
+test('bridge-delivered source-backed discovery content records provenance and skips only that covered step',()=>{
+ const step=playbook.scriptSteps.find(item=>item.id==='discovery-1'),support=step.text;
+ const bridge={id:'bridge-coverage',bridgeId:'bridge-coverage',currentScriptStepId:'opening-1',questionBridgeActive:true,suspendedScriptStepId:'opening-1',originalQuestion:'What is the current approach?',latestQuestion:'What is the current approach?',answerHistory:[],bridgeTurnCount:1,resolutionState:'active',fallbackDelivered:false,questionSummary:'current approach',approvedQuestionResponse:support,questionResolutionState:'awaiting_seller',sourceType:'playbook_step',sourceId:step.id,sourceIds:[step.id],supportingText:support};
+ const sellerTurn={id:'seller-bridge-answer',text:`${support} We should be clear about the gap between what people need and what they can access.`};
+ const records=flow.assessPracticeBridgeCoverage(playbook,bridge,sellerTurn);
+ assert.equal(records.length,1);
+ assert.equal(records[0].stepId,'discovery-1');
+ assert.equal(records[0].status,'explicitly_delivered');
+ assert.equal(records[0].sellerTurnId,sellerTurn.id);
+ assert.equal(records[0].bridgeOrRouteId,bridge.bridgeId);
+ assert.ok(records[0].sourceIds.includes('discovery-1'));
+ assert.match(records[0].reason,/source_backed_script_objective/);
+ const navigation={routeDirection:'advance',activeAdaptiveRoute:false,approvedScriptBranchId:null,scriptStepId:'discovery-1',currentScriptStepId:'discovery-1',currentScriptSection:'discovery',recommendedScriptSection:'discovery',nextSequentialScriptStepId:'discovery-2',visibleScriptText:step.text,staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false};
+ const skipped=flow.skipCoveredPracticeSteps(navigation,playbook,{ 'discovery-1':records[0] });
+ assert.equal(skipped.skipped.map(item=>item.stepId).join(','),'discovery-1');
+ assert.equal(skipped.navigation.scriptStepId,'discovery-2');
+ assert.equal(skipped.allRemainingCovered,false);
+});
+
+test('unrelated, partial, and objection-route evidence cannot skip canonical script wording',()=>{
+ const navigation={routeDirection:'advance',activeAdaptiveRoute:false,approvedScriptBranchId:null,scriptStepId:'discovery-1',currentScriptStepId:'discovery-1',currentScriptSection:'discovery',recommendedScriptSection:'discovery',nextSequentialScriptStepId:'discovery-2',visibleScriptText:'Explore the current approach.',staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false};
+ const coverage={ 'discovery-1':{stepId:'discovery-1',status:'partially_covered',sellerTurnId:'seller-1',sourceIds:['discovery-1'],bridgeOrRouteId:'bridge-1',reason:'partial',evidenceText:'We do some wellbeing work.',confidence:0.3} };
+ assert.equal(flow.skipCoveredPracticeSteps(navigation,playbook,coverage).skipped.length,0,'partial coverage remains available to the seller');
+ const unrelated={...coverage['discovery-1'],status:'covered',stepId:'positioning-1',sourceIds:['positioning-1']};
+ assert.equal(flow.skipCoveredPracticeSteps(navigation,playbook,{'positioning-1':unrelated}).skipped.length,0,'an unrelated covered step does not skip discovery');
+ assert.equal(flow.assessPracticeScriptCoverage({step:playbook.scriptSteps.find(item=>item.id==='discovery-1'),sourceIds:['1-capacity-concern'],supportingText:'We can identify a manageable first step.',sellerTurn:{id:'seller-objection',text:'We can identify a manageable first step.'},bridgeOrRouteId:'1-capacity-concern'}),null,'objection wording without explicit discovery-step provenance cannot mark discovery covered');
+ assert.equal(flow.assessPracticeBridgeCoverage(playbook,{...flow.createPracticeQuestionBridge({question:'Can you guarantee results?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-fallback'}),sourceType:'safe_fallback',sourceIds:[],supportingText:null},{id:'seller-safe-boundary',text:'I do not want to guess.'}).length,0,'safe fallback carries no script coverage authority');
+});
+
+test('recovery always supplies self-sufficient spoken wording and a normal buyer reply can return to the conversation',()=>{
+ const unsupported=flow.markPracticeQuestionBridgeAnswerSubmitted(flow.createPracticeQuestionBridge({question:'Can you guarantee results for every organisation?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-recovery'}));
+ const recovery=flow.createPracticeQuestionRecovery(unsupported,'Could you prescribe a treatment for that?');
+ assert.ok(recovery.approvedQuestionResponse.trim().length>20);
+ assert.match(recovery.approvedQuestionResponse,/I don’t want to guess|I’d rather give you|I can’t answer that accurately/);
+ assert.doesNotMatch(recovery.approvedQuestionResponse,/David|ask David|clarify with David|pause here/i);
+ const afterDelivery=flow.markPracticeQuestionBridgeAnswerSubmitted(recovery);
+ assert.equal(afterDelivery.questionResolutionState,'awaiting_buyer');
+ assert.equal(flow.classifyPracticeBuyerTurn('That is fair; what can you tell me about the current approach?'),'direct_question');
+ assert.equal(flow.classifyPracticeBuyerTurn('I understand. We currently use a quarterly survey.'),'normal_response','a normal reply leaves the unsupported loop and can resume canonical navigation');
+});
+
+test('synthetic buyer text is concise by default; longer output needs an explicit scenario need',()=>{
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. What do employees find most useful?'),true);
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Our managers also check in. I am unsure what else is available. What would you recommend?'),false);
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(600)),false);
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We have several teams and different support needs. Our current process combines surveys and manager conversations. We need a clear view across those sources. Could you show how the evidence is organised?',true),true,'an explicit scenario need permits a bounded longer reply');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(1300),true),false,'even an explicit scenario need remains bounded');
+});
+
+test('Practice latency summary reports per-cycle median and p95 without inventing live samples',()=>{
+ const stages=['last_seller_speech_activity','silence_threshold_reached','settle_window_completed','final_required_packet_available','seller_turn_assembled','seller_integrity_validated','buyer_generation_started','buyer_generation_completed','buyer_turn_finalized','buyer_audio_started','buyer_audio_completed','practice_handover_complete','seller_listening_resumed','next_wording_first_visible'];
+ const rows=[];for(let turnOrder=1;turnOrder<=3;turnOrder++){let at=turnOrder*10000;for(const latencyStage of stages){rows.push({turnOrder,latencyStage,at});at+=turnOrder*10;}}
+ const result=flow.summarizePracticeLatency(rows);
+ assert.equal(result.speechToEndpointMs.sampleCount,3);
+ assert.equal(result.speechToEndpointMs.medianMs,20);
+ assert.equal(result.speechToEndpointMs.p95Ms,30);
+ assert.equal(result.buyerEndToHandoverCompleteMs.medianMs,20);
+ assert.equal(flow.summarizePracticeLatency([]).buyerGenerationMs.medianMs,null,'no live latency claim is emitted without samples');
 });
