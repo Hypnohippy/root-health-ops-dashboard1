@@ -12,6 +12,8 @@ export type PracticeQuestionAnswerHistoryEntry={
  sourceIds:string[];
  supportingText:string|null;
 };
+export type PracticeQuestionCandidateScore={sourceIds:string[];exactAnswerScore:number;relevantConceptScore:number;concepts:string[];rejectionReasons:string[]};
+export type PracticeQuestionRetrievalDiagnostics={intent:string;candidateCount:number;candidateSourceIds:string[];candidateScores:PracticeQuestionCandidateScore[];selectedSourceIds:string[];selectedPath:'exact_approved_answer'|'relevant_approved_concept'|'multi_source_composition'|'safe_fallback'|null;answerQuality:{answersQuestion:boolean;addsUsefulInformation:boolean;sourceBacked:boolean;distinctFromRecentWording:boolean;passed:boolean}|null;fallbackReason:string|null};
 export type PracticeQuestionBridge={
  id:string;
  bridgeId:string;
@@ -33,6 +35,7 @@ export type PracticeQuestionBridge={
  supportingText:string|null;
  recoveryRequired?:boolean;
  recoveryCount?:number;
+ retrievalDiagnostics?:PracticeQuestionRetrievalDiagnostics;
 };
 export type PracticeScriptCoverageStatus='not_covered'|'partially_covered'|'covered'|'explicitly_delivered';
 export type PracticeScriptCoverageRecord={stepId:string;status:PracticeScriptCoverageStatus;sellerTurnId:string;sourceIds:string[];bridgeOrRouteId:string;reason:string;evidenceText:string;confidence:number};
@@ -66,25 +69,43 @@ export function classifyPracticeBuyerTurn(text:string):PracticeBuyerClassificati
  return 'normal_response';
 }
 
-const stopWords=new Set(['what','when','where','which','who','whom','whose','why','how','does','did','doing','would','could','should','can','will','the','and','for','from','with','that','this','they','them','you','your','our','their','about','into','usually','specifically','exactly','kind','look','like','mean','much','many','some','tell','please','company','companies','organisation','organisations','organization','organizations','every','result','results','people','team','teams','practice','recommend','recommendations','solution','solutions']);
+const stopWords=new Set(['what','when','where','which','who','whom','whose','why','how','does','did','doing','would','could','should','can','will','the','and','for','from','with','that','this','they','them','you','your','our','their','about','into','usually','specifically','exactly','kind','look','looking','like','mean','much','many','some','tell','please','company','companies','organisation','organisations','organization','organizations','every','result','results','people','team','teams','practice','recommend','recommendations','solution','solutions']);
 function normalizeToken(token:string){return token.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/ies$/,'y').replace(/s$/,'').replace(/ing$/,'').replace(/ed$/,'');}
 function tokens(value:string){return value.toLowerCase().split(/[^a-z0-9]+/).map(normalizeToken).filter(token=>token.length>2&&!stopWords.has(token));}
 function sentenceList(source:string){return source.split(/(?<=[.!?])\s+/).map(value=>value.trim()).filter(Boolean);}
 type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_mechanism'|'follow_up_detail'|'general';
-function questionIntent(question:string):PracticeQuestionIntent{
- if(/\b(solutions?|recommend(?:ation|ations)?|interventions?|address|resolve|deal with)\b/i.test(question))return 'solution_capability';
+function questionIntent(question:string,context=''):PracticeQuestionIntent{
+  if(/\b(solutions?|recommend(?:ation|ations)?|interventions?|treatments?|prescribe|address|resolve|deal with)\b/i.test(question))return 'solution_capability';
  if(/\b(follow[ -]?up|next step|next meeting|conversation|appointment)\b/i.test(question))return 'follow_up_detail';
  if(/\b(how does|how do|how would|how exactly|what does .* do|what is .* designed to|how .* work)\b/i.test(question))return 'product_mechanism';
- if(/\b(gaps?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction)\b/i.test(question)&&/\b(kind|type|example|what|which)\b/i.test(question))return 'gap_categories';
+  const gapTopic=/\b(gaps?|pressure|bottlenecks?|absence|burnout|stress|manager strain|engagement|wellbeing issues?|well-being issues?|underused support|existing support)\b/i.test(question);
+  const asksForAreas=/\b(?:what|which)\s+(?:kinds?|types?|sorts?|areas?|examples?)\b|\bwhat exactly (?:are you )?looking for\b|\bwhere (?:do you|would you|does it) (?:usually )?(?:see|find|show)\b/i.test(question);
+  const contextualGap=/\b(gaps?|pressure|absence|burnout|stress|manager strain|engagement|underused support|existing support)\b/i.test(context);
+  if(gapTopic||asksForAreas&&contextualGap||/\b(gaps?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction)\b/i.test(question)&&/\b(kind|type|example|what|which|mean|specifically)\b/i.test(question))return 'gap_categories';
  return 'general';
 }
-function semanticRelevance(intent:PracticeQuestionIntent,sentence:string,question:string):number{
+function naturalList(values:string[]){if(values.length<2)return values[0]||'';if(values.length===2)return `${values[0]} or ${values[1]}`;return `${values.slice(0,-1).join(', ')} or ${values.at(-1)}`;}
+function gapConcepts(sentence:string):string[]{
+ const concepts:string[]=[];
+ if(/\babsence\b/i.test(sentence))concepts.push('absence');
+ if(/\bburnout\b/i.test(sentence))concepts.push('burnout');
+ if(/\bstress\b/i.test(sentence))concepts.push('stress');
+ if(/\bmanager strain\b/i.test(sentence))concepts.push('manager strain');
+ if(/\bengagement\b/i.test(sentence))concepts.push('engagement');
+ if(/\b(?:effectiveness|effective use|underused|underutili[sz]ed|underutili[sz]ation|utili[sz]ation|usage)\b.{0,50}\b(?:existing )?(?:support|resources?)\b|\b(?:existing )?(?:support|resources?)\b.{0,50}\b(?:underused|underutili[sz]ed|underutili[sz]ation|utili[sz]ation|usage|effectiveness)\b/i.test(sentence))concepts.push('use or effectiveness of existing support');
+ return concepts;
+}
+function genericGapListConcepts(sentence:string):string[]{
+ const match=sentence.match(/\b(?:gaps?|pressure areas?|bottlenecks?|issues?|challenges?|problems?|barriers?|friction points?)\b.{0,80}\b(?:include|including|such as|for example|range from|can be|may include|are|show up in)\b\s+(.+?)(?:[.!?]|$)/i)||sentence.match(/\b(?:things like|examples include|areas such as)\b\s+(.+?)(?:[.!?]|$)/i);
+ if(!match)return [];
+ return [...new Set(match[1].split(/,|\s+(?:and|or)\s+/i).map(value=>value.trim().replace(/^(?:the|a|an)\s+/i,'').replace(/\s+/g,' ')).filter(value=>tokens(value).length>0&&tokens(value).length<=4))].slice(0,6);
+}
+function questionAnswerConcepts(sentence:string):string[]{const known=gapConcepts(sentence);return known.length?known:genericGapListConcepts(sentence);}
+function exactAnswerRelevance(intent:PracticeQuestionIntent,sentence:string,question:string):number{
  const text=sentence.toLowerCase();
  if(intent==='gap_categories'){
-  const groundedListHead=/\b(?:gaps?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction points?)\b.{0,64}\b(?:include|including|such as|for example|range from|can be|may include)\b/i.test(text);
-  const commaItems=(sentence.match(/,/g)||[]).length;
-  const multipleItems=commaItems>=1||/\b(and|or)\b/i.test(text);
-  return groundedListHead&&multipleItems?8:0;
+    const concepts=questionAnswerConcepts(sentence),literalAnswer=/\b(?:gaps?|pressure areas?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction points?)\b.{0,80}\b(?:include|including|such as|for example|range from|can be|may include|are)\b/i.test(text);
+   return literalAnswer&&concepts.length>=2?8+concepts.length:0;
  }
  if(intent==='solution_capability'){
   const capabilitySignals=[/\b(designed|helps?|enables?|supports?|provides?|gives?)\b/i,/\b(continu(?:ous|ously)|day to day|daily|regularly|over time)\b/i,/\b(understand|identify|clearer view|show|reveal)\b/i,/\b(survey|surveys|one.off|initiative|initiatives)\b/i,/\b(employee|organisation|organization|support|wellbeing|well-being)\b/i];
@@ -104,6 +125,13 @@ function semanticRelevance(intent:PracticeQuestionIntent,sentence:string,questio
  const newInformation=[...sentenceTerms].filter(term=>!questionTerms.has(term)).length;
  return overlap>=2&&newInformation>=3?overlap+Math.min(newInformation,4):0;
 }
+function relevantConceptRelevance(intent:PracticeQuestionIntent,sentence:string):number{
+ if(intent==='gap_categories'){
+  const concepts=questionAnswerConcepts(sentence),contextAnchor=/\b(pressure|gaps?|issues?|challenges?|problems?|bottlenecks?|absence|burnout|stress|manager strain|engagement|support|resources?)\b/i.test(sentence);
+  return concepts.length>=2&&contextAnchor?4+concepts.length:0;
+ }
+ return 0;
+}
 function repetitionSimilarity(candidate:string,reference:string):number{
  const a=new Set(tokens(candidate)),b=new Set(tokens(reference));
  if(!a.size||!b.size)return 0;
@@ -111,12 +139,24 @@ function repetitionSimilarity(candidate:string,reference:string):number{
  return overlap/Math.min(a.size,b.size);
 }
 function makesInformativeProgress(candidate:string,question:string){const candidateTokens=new Set(tokens(candidate)),questionTokens=new Set(tokens(question));const repeatsQuestion=questionTokens.size>=3&&repetitionSimilarity(candidate,question)>=0.72;return !repeatsQuestion&&[...candidateTokens].filter(token=>!questionTokens.has(token)).length>=3;}
-const fallbackAnswer="I don’t want to guess or overstate that. What would be most useful for you to understand first, so I can answer accurately?";
+function fallbackAnswerFor(intent:PracticeQuestionIntent,question:string,variant=0){
+ if(/\bguarantee(?:d)? results?\b/i.test(question))return 'I don’t have approved information about guaranteed results in this playbook. Is there another detail you would like me to clarify?';
+ if(/\bpricing|price|cost\b/i.test(question))return 'I don’t have approved pricing information in this playbook. Is there a supported part of the approach you would like me to explain?';
+ if(/\bprescribe|treatments?\b/i.test(question))return 'I can’t recommend a treatment from the approved material. Is there another part you would like me to clarify?';
+ if(intent==='gap_categories'){
+  const subject=/\bbottlenecks?\b/i.test(question)?'those bottlenecks':/\bpressure\b/i.test(question)?'those pressure areas':/\bgaps?\b/i.test(question)?'those gaps':'those areas';
+  return [`I don’t have an approved example of ${subject} to give you. Is there a particular area you want me to clarify?`,`I can’t support another example of ${subject} from the playbook. Which part should I clarify?`,`I don’t have another approved example of ${subject}. What specific area matters most to you?`][Math.min(variant,2)];
+ }
+ if(intent==='solution_capability')return 'I don’t have an approved recommendation for that. Which part of the approach would you like me to clarify?';
+ if(intent==='product_mechanism')return 'I don’t have an approved explanation for that detail. Which part of how it works should I clarify?';
+ if(intent==='follow_up_detail')return 'I don’t have an approved detail about that next step. What part of the follow-up should I clarify?';
+ return 'I don’t have an approved answer to that specific question. What detail should I clarify?';
+}
 export const MAX_PRACTICE_QUESTION_BRIDGE_TURNS=3;
 
 /** Mark that the seller has delivered the current bridge answer; an exhausted fallback must not loop. */
 export function markPracticeQuestionBridgeAnswerSubmitted(bridge:PracticeQuestionBridge):PracticeQuestionBridge{
- return {...bridge,questionResolutionState:'awaiting_buyer',resolutionState:bridge.resolutionState==='exhausted'?'exhausted':'active',fallbackDelivered:bridge.sourceType==='safe_fallback'||bridge.fallbackDelivered};
+ return {...bridge,questionResolutionState:'awaiting_buyer',resolutionState:bridge.resolutionState==='exhausted'?'exhausted':'active',fallbackDelivered:bridge.sourceType==='safe_fallback'||bridge.fallbackDelivered||bridge.bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS};
 }
 
 /** A delivered exhausted fallback closes the detour; later questions return to normal objection/navigation handling. */
@@ -128,11 +168,7 @@ export function canContinuePracticeQuestionBridge(bridge:PracticeQuestionBridge|
 export function createPracticeQuestionRecovery(bridge:PracticeQuestionBridge,question:string):PracticeQuestionBridge{
  const previousAnswer=bridge.questionResolutionState==='awaiting_buyer'?{question:bridge.latestQuestion,answer:bridge.approvedQuestionResponse,sourceType:bridge.sourceType,sourceId:bridge.sourceId,sourceIds:bridge.sourceIds,supportingText:bridge.supportingText}:null;
  const recoveryCount=(bridge.recoveryCount||0)+1;
- const recoveryWording=[
-  'I don’t want to guess or overstate that. What would be most useful for you to understand first, so I can answer accurately?',
-  'I’d rather give you a properly grounded answer than speculate. Which part would be most useful to explore first?',
-  'I can’t answer that accurately from the approved information yet. Let’s stay with what we can establish: what is the main issue you want to address?'
- ][Math.min(recoveryCount,2)];
+ const recoveryWording=fallbackAnswerFor(questionIntent(question,[bridge.originalQuestion,bridge.latestQuestion].join(' ')),question,recoveryCount);
  return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
 }
 
@@ -170,7 +206,8 @@ export function skipCoveredPracticeSteps(navigation:ScriptNavigation,playbook:Sa
 
 export function practiceBuyerResponseWithinDefaultBudget(text:string,explicitScenarioNeed=false){
  const value=text.trim(),sentences=value.split(/(?<=[.!?])\s+/).filter(Boolean);
- return !!value&&value.length<=(explicitScenarioNeed?1200:520)&&sentences.length<=(explicitScenarioNeed?6:3);
+ const wordCount=value.split(/\s+/).filter(Boolean).length;
+ return !!value&&value.length<=(explicitScenarioNeed?1200:300)&&sentences.length<=(explicitScenarioNeed?6:2)&&(explicitScenarioNeed||wordCount<=38);
 }
 
 export function summarizePracticeLatency(events:Array<{turnOrder?:number;latencyStage?:string;at?:number}>){
@@ -206,17 +243,16 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
   originalQuestion:existing?.originalQuestion||input.question,latestQuestion:input.question,answerHistory,bridgeTurnCount,
   questionSummary:input.question.slice(0,240),questionResolutionState:'awaiting_seller' as const,recoveryRequired:false,
  };
- const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted'):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:fallbackAnswer,sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null});
- if(existing?.resolutionState==='exhausted'||bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS)return safeFallback();
-
- const intent=questionIntent(input.question),currentStep=input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId);
+ const intent=questionIntent(input.question,[existing?.originalQuestion||'',existing?.latestQuestion||'',input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId)?.text||'',...input.playbook.scriptSteps.map(step=>step.text),...input.playbook.approvedClaims].join(' '));
+ const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:fallbackAnswerFor(intent,input.question),sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics});
+ const currentStep=input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId);
  const sources=[
   ...input.playbook.scriptSteps.filter(step=>step.section!=='approved_claims').map(step=>({id:step.id,section:step.section,text:step.text,sourceType:'playbook_step' as const})),
   ...input.playbook.approvedClaims.map((text,index)=>({id:`claim-${index+1}`,section:'approved_claims',text,sourceType:'approved_claim' as const})),
  ];
  const groupedSources=new Map<string,typeof sources>();
  for(const source of sources){const group=groupedSources.get(`${source.sourceType}:${source.section}`)||[];group.push(source);groupedSources.set(`${source.sourceType}:${source.section}`,group);}
- const candidates:{id:string;sourceIds:string[];text:string;sourceType:'playbook_step'|'approved_claim'}[]=[];
+  const candidates:{id:string;sourceIds:string[];text:string;sourceType:'playbook_step'|'approved_claim'}[]=[];
  for(const group of groupedSources.values()){
   const fragments=group.flatMap(source=>sentenceList(source.text).map(text=>({id:source.id,text,sourceType:source.sourceType})));
   for(let index=0;index<fragments.length;index++){
@@ -226,18 +262,32 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
   }
  }
  const priorAnswers=answerHistory.map(entry=>entry.answer);
- const references=[input.previousSellerText||'',currentStep?.text||'',...priorAnswers].filter(Boolean);
- let winner:{id:string;sourceIds:string[];text:string;sourceType:'playbook_step'|'approved_claim';score:number}|null=null;
- for(const candidate of candidates){
-  const answer=candidate.text;
-  if(references.some(reference=>repetitionSimilarity(answer,reference)>=0.68))continue;
-  if(!makesInformativeProgress(answer,input.question))continue;
-  const score=semanticRelevance(intent,answer,input.question);
-  if(score>0&&(!winner||score>winner.score))winner={id:candidate.id,sourceIds:candidate.sourceIds,text:answer,sourceType:candidate.sourceType,score};
+ const references=[{kind:'previous_seller_wording',text:input.previousSellerText||''},{kind:'current_step_wording',text:currentStep?.text||''},...priorAnswers.map(text=>({kind:'previous_bridge_answer',text}))].filter(item=>item.text);
+ const diagnostics:PracticeQuestionRetrievalDiagnostics={intent,candidateCount:candidates.length,candidateSourceIds:[...new Set(candidates.flatMap(candidate=>candidate.sourceIds))],candidateScores:[],selectedSourceIds:[],selectedPath:null,answerQuality:null,fallbackReason:null};
+  const evaluated=candidates.map(candidate=>{const concepts=questionAnswerConcepts(candidate.text),exactAnswerScore=exactAnswerRelevance(intent,candidate.text,input.question),relevantConceptScore=relevantConceptRelevance(intent,candidate.text),rejectionReasons:string[]=[];for(const reference of references)if(repetitionSimilarity(candidate.text,reference.text)>=0.68)rejectionReasons.push(reference.kind);return {...candidate,concepts,exactAnswerScore,relevantConceptScore,rejectionReasons};});
+ diagnostics.candidateScores=evaluated.map(candidate=>({sourceIds:candidate.sourceIds,exactAnswerScore:candidate.exactAnswerScore,relevantConceptScore:candidate.relevantConceptScore,concepts:candidate.concepts,rejectionReasons:[...candidate.rejectionReasons,...(candidate.exactAnswerScore===0&&candidate.relevantConceptScore===0?[candidate.concepts.length?'not_enough_relevant_concepts_for_single_source_answer':'no_relevant_approved_concept_match']:[])]}));
+ if(existing?.resolutionState==='exhausted'&&existing.fallbackDelivered){diagnostics.candidateScores=diagnostics.candidateScores.map(candidate=>({...candidate,rejectionReasons:[...candidate.rejectionReasons,'previous_bridge_exhausted_no_nested_bridge']}));diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason='previous_bridge_exhausted_no_nested_bridge';return {...safeFallback('exhausted',diagnostics),fallbackDelivered:true};}
+ const sourceById=new Map(sources.map(source=>[source.id,source]));
+ const composeGapAnswer=(concepts:string[])=>`Things like ${naturalList(concepts)} — areas where the pressure can show up.`;
+ const validateAnswer=(answer:string,sourceIds:string[],supportedConcepts:string[])=>{
+   const approvedSources=sourceIds.map(id=>sourceById.get(id)).filter(Boolean),supportedText=approvedSources.map(source=>source!.text).join(' '),answerConcepts=questionAnswerConcepts(answer),answersQuestion=intent==='gap_categories'?answerConcepts.length>=2:exactAnswerRelevance(intent,answer,input.question)>0||relevantConceptRelevance(intent,answer)>0,addsUsefulInformation=makesInformativeProgress(answer,input.question),sourceBacked=approvedSources.length===sourceIds.length&&supportedConcepts.every(concept=>questionAnswerConcepts(supportedText).includes(concept)||supportedText.toLowerCase().includes(concept.toLowerCase())),distinctFromRecentWording=!references.some(reference=>repetitionSimilarity(answer,reference.text)>=0.68),passed=answersQuestion&&addsUsefulInformation&&sourceBacked&&distinctFromRecentWording;
+  return {answersQuestion,addsUsefulInformation,sourceBacked,distinctFromRecentWording,passed};
+ };
+ const eligible=evaluated.filter(candidate=>candidate.rejectionReasons.length===0);
+ const trySelect=(items:typeof eligible,path:PracticeQuestionRetrievalDiagnostics['selectedPath'],answerFor:(candidate:typeof eligible[number])=>{answer:string;concepts:string[]}|null)=>{
+  const ordered=[...items].sort((a,b)=>b.exactAnswerScore-a.exactAnswerScore||b.relevantConceptScore-a.relevantConceptScore);
+  for(const candidate of ordered){const composed=answerFor(candidate);if(!composed)continue;const sourceIds=[...new Set(candidate.sourceIds)],quality=validateAnswer(composed.answer,sourceIds,composed.concepts);diagnostics.answerQuality=quality;if(!quality.passed){candidate.rejectionReasons.push(...Object.entries(quality).filter(([,ok])=>!ok).map(([key])=>`answer_quality_${key}_failed`));const score=diagnostics.candidateScores.find(row=>row.sourceIds.join('|')===candidate.sourceIds.join('|')&&row.exactAnswerScore===candidate.exactAnswerScore&&row.relevantConceptScore===candidate.relevantConceptScore);if(score)score.rejectionReasons=[...candidate.rejectionReasons];continue;}diagnostics.selectedPath=path;diagnostics.selectedSourceIds=sourceIds;return {candidate,answer:composed.answer,sourceIds,quality};}
+  return null;
+ };
+ let selected=trySelect(eligible.filter(candidate=>candidate.exactAnswerScore>0),'exact_approved_answer',candidate=>({answer:candidate.text,concepts:candidate.concepts}));
+ if(!selected&&intent==='gap_categories')selected=trySelect(eligible.filter(candidate=>candidate.relevantConceptScore>0),'relevant_approved_concept',candidate=>{const concepts=candidate.concepts;if(concepts.length<2)return null;return {answer:composeGapAnswer(concepts),concepts};});
+ if(!selected&&intent==='gap_categories'){
+  const fragments=eligible.filter(candidate=>candidate.sourceIds.length===1&&candidate.concepts.length>0),conceptSources=new Map<string,Set<string>>();for(const candidate of fragments)for(const concept of candidate.concepts){const ids=conceptSources.get(concept)||new Set<string>();for(const id of candidate.sourceIds)ids.add(id);conceptSources.set(concept,ids);}
+  const concepts=[...conceptSources.keys()],sourceIds=[...new Set(fragments.flatMap(candidate=>candidate.sourceIds))];if(concepts.length>=2&&sourceIds.length>=2){const answer=composeGapAnswer(concepts),quality=validateAnswer(answer,sourceIds,concepts);diagnostics.answerQuality=quality;if(quality.passed){diagnostics.selectedPath='multi_source_composition';diagnostics.selectedSourceIds=sourceIds;selected={candidate:{...fragments[0],sourceIds,text:fragments.map(candidate=>candidate.text).join(' '),id:fragments[0].id,sourceType:fragments.some(candidate=>candidate.sourceType==='playbook_step')?'playbook_step':'approved_claim',concepts,exactAnswerScore:0,relevantConceptScore:concepts.length,rejectionReasons:[]},answer,sourceIds,quality};}else diagnostics.fallbackReason='composed_answer_failed_quality_gate';}
  }
- if(!winner)return safeFallback();
- const prefix=winner.sourceType==='approved_claim'?'The approved information describes it this way: ':'One relevant point from the approved playbook is: ';
- return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:false,approvedQuestionResponse:`${prefix}${winner.text}`,sourceType:winner.sourceType,sourceId:winner.id,sourceIds:winner.sourceIds,supportingText:winner.text};
+ if(!selected){const relevantCandidates=evaluated.filter(candidate=>candidate.exactAnswerScore>0||candidate.relevantConceptScore>0);diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason=diagnostics.fallbackReason|| (existing?.resolutionState==='exhausted'?'previous_bridge_exhausted_no_nested_bridge':bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'bridge_turn_limit_reached':relevantCandidates.length?'all_relevant_candidates_rejected_by_repetition_or_quality_gate':candidates.length?'no_direct_or_relevant_approved_concept':'no_approved_candidates');return safeFallback('exhausted',diagnostics);}
+ const supportingText=selected.candidate.text,sourceType=selected.candidate.sourceType;
+ return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:selected.answer,sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
 }
 
 export function practiceTerminalOutcome(classification:PracticeBuyerClassification):PracticeTerminalOutcome|null{

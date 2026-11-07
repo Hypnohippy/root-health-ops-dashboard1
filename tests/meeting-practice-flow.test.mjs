@@ -51,6 +51,54 @@ test('gap question rejects the opening paraphrase and selects a grounded categor
  assert.doesNotMatch(bridge.approvedQuestionResponse,/trying to understand what you are doing/i);
 });
 
+test('gap paraphrases retrieve the real approved pressure categories and report candidate-stage diagnostics',()=>{
+ const sourcePlaybook=adaptive.parseSalesPlaybook(`# Pressure Guide
+## Opening
+Set a clear purpose for the conversation.
+## Discovery
+Where do you still see pressure — absence, burnout, stress, manager strain, engagement, or something else?
+`);
+ for(const question of ['What specifically do you mean by gaps?','What kind of gaps?','What areas do you mean?','Where do you usually see pressure?','What exactly are you looking for?']){
+  assert.equal(flow.classifyPracticeBuyerTurn(question),'direct_question');
+  const bridge=flow.createPracticeQuestionBridge({question,playbook:sourcePlaybook,currentScriptStepId:'opening-1',buyerTurnId:`buyer-${question.length}`});
+  assert.notEqual(bridge.sourceType,'safe_fallback',question);
+  assert.equal(bridge.sourceId,'discovery-1',question);
+  assert.ok(bridge.sourceIds.includes('discovery-1'),question);
+  assert.match(bridge.approvedQuestionResponse,/absence.*burnout.*stress.*manager strain.*engagement/i,question);
+  assert.equal(bridge.retrievalDiagnostics.selectedPath,'relevant_approved_concept');
+  assert.equal(bridge.retrievalDiagnostics.fallbackReason,null);
+  assert.equal(bridge.retrievalDiagnostics.selectedSourceIds.join(','),'discovery-1');
+  assert.equal(bridge.retrievalDiagnostics.answerQuality.passed,true);
+  const selected=bridge.retrievalDiagnostics.candidateScores.find(candidate=>candidate.sourceIds.includes('discovery-1'));
+  assert.equal(selected.exactAnswerScore,0,'the pressure list is relevant concept evidence even without literal “gaps include” wording');
+  assert.ok(selected.relevantConceptScore>0);
+ }
+});
+
+test('supported gap categories can be composed across multiple approved playbook sources with every source retained',()=>{
+ const sourcePlaybook=adaptive.parseSalesPlaybook(`# Distributed Evidence
+## Opening
+Set a clear purpose for the conversation.
+## Discovery
+Pressure can show up in absence.
+## Qualification
+Burnout may put pressure on managers.
+## Positioning
+Stress can affect teams.
+## Close
+Engagement can be affected by pressure.
+`);
+ const bridge=flow.createPracticeQuestionBridge({question:'What areas do you mean by pressure?',playbook:sourcePlaybook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-multi-source'});
+ assert.notEqual(bridge.sourceType,'safe_fallback');
+ assert.equal(bridge.retrievalDiagnostics.selectedPath,'multi_source_composition');
+ assert.ok(bridge.sourceIds.includes('discovery-1'));
+ assert.ok(bridge.sourceIds.includes('qualification-1'));
+ assert.ok(bridge.sourceIds.includes('positioning-1'));
+ assert.match(bridge.approvedQuestionResponse,/absence.*burnout.*stress.*engagement/i);
+ assert.equal(bridge.retrievalDiagnostics.answerQuality.sourceBacked,true);
+ assert.deepEqual(bridge.retrievalDiagnostics.selectedSourceIds,bridge.sourceIds);
+});
+
 test('solution question uses grounded Root capabilities rather than inventing interventions',()=>{
  const bridge=flow.createPracticeQuestionBridge({question:'What kind of solutions do you typically recommend for these gaps?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-solutions'});
  assert.equal(bridge.sourceId,'positioning-1');
@@ -103,7 +151,11 @@ Common bottlenecks include approvals, handoffs, and delayed updates.`);
  const bridge=flow.createPracticeQuestionBridge({question:'What bottlenecks do you mean?',playbook:repeatedPlaybook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-repeat',previousSellerText:delivered});
  assert.equal(bridge.sourceType,'safe_fallback');
  assert.equal(bridge.resolutionState,'exhausted');
- assert.match(bridge.approvedQuestionResponse,/don.t want to guess/i);
+ assert.match(bridge.approvedQuestionResponse,/approved example of those bottlenecks/i);
+ assert.ok(bridge.retrievalDiagnostics.candidateCount>0);
+ assert.ok(bridge.retrievalDiagnostics.candidateSourceIds.includes('discovery-1'));
+ assert.equal(bridge.retrievalDiagnostics.fallbackReason,'all_relevant_candidates_rejected_by_repetition_or_quality_gate');
+ assert.ok(bridge.retrievalDiagnostics.candidateScores.some(candidate=>candidate.sourceIds.includes('discovery-1')&&candidate.rejectionReasons.includes('previous_seller_wording')));
 });
 
 test('unsupported questions fail safely and the same bridge is bounded after the fallback is delivered',()=>{
@@ -129,7 +181,7 @@ test('unsupported direct question after a delivered fallback enters visible reco
  assert.equal(recovery.fallbackDelivered,true);
  assert.equal(recovery.sourceType,'safe_fallback');
  assert.notEqual(recovery.approvedQuestionResponse,first.approvedQuestionResponse,'recovery is a distinct handoff instruction, not a repeated answer');
- assert.match(recovery.approvedQuestionResponse,/which part would be most useful to explore first|what would be most useful for you to understand first/i);
+ assert.match(recovery.approvedQuestionResponse,/can’t recommend a treatment/i);
  assert.doesNotMatch(recovery.approvedQuestionResponse,/David|ask David|pause here/i);
  assert.equal(flow.canContinuePracticeQuestionBridge(recovery),false);
 });
@@ -155,7 +207,7 @@ test('bridge answers are bounded and exhaustion emits one final non-claiming fal
  assert.equal(finalFallback.bridgeId,first.bridgeId);
  assert.equal(finalFallback.suspendedScriptStepId,'opening-1');
  assert.equal(finalFallback.sourceType,'safe_fallback');
- assert.match(finalFallback.approvedQuestionResponse,/don.t want to guess/i);
+ assert.match(finalFallback.approvedQuestionResponse,/approved (?:example|information)|approved recommendation/i);
  assert.equal(flow.canContinuePracticeQuestionBridge(flow.markPracticeQuestionBridgeAnswerSubmitted(finalFallback)),false);
 });
 
@@ -192,8 +244,8 @@ test('unsupported question uses a safe non-claiming answer rather than inventing
  assert.equal(bridge.sourceType,'safe_fallback');
  assert.equal(bridge.sourceId,null);
  assert.equal(bridge.supportingText,null);
- assert.match(bridge.approvedQuestionResponse,/don.t want to guess/i);
- assert.doesNotMatch(bridge.approvedQuestionResponse,/guarantee|pricing|integration|customer/i);
+ assert.match(bridge.approvedQuestionResponse,/approved information about guaranteed results/i);
+ assert.doesNotMatch(bridge.approvedQuestionResponse,/we guarantee|guaranteed outcomes/i);
 });
 
 test('terminal outcomes are explicit and objections remain on the separate objection route',()=>{
@@ -250,7 +302,7 @@ test('recovery always supplies self-sufficient spoken wording and a normal buyer
  const unsupported=flow.markPracticeQuestionBridgeAnswerSubmitted(flow.createPracticeQuestionBridge({question:'Can you guarantee results for every organisation?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-recovery'}));
  const recovery=flow.createPracticeQuestionRecovery(unsupported,'Could you prescribe a treatment for that?');
  assert.ok(recovery.approvedQuestionResponse.trim().length>20);
- assert.match(recovery.approvedQuestionResponse,/I don’t want to guess|I’d rather give you|I can’t answer that accurately/);
+ assert.match(recovery.approvedQuestionResponse,/can’t recommend a treatment/i);
  assert.doesNotMatch(recovery.approvedQuestionResponse,/David|ask David|clarify with David|pause here/i);
  const afterDelivery=flow.markPracticeQuestionBridgeAnswerSubmitted(recovery);
  assert.equal(afterDelivery.questionResolutionState,'awaiting_buyer');
