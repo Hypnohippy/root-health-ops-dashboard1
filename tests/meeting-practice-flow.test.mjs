@@ -6,11 +6,15 @@ const adaptive=loadMeeting('lib/meetingAdaptiveCoach.ts');
 const flow=loadMeeting('lib/meetingPracticeFlow.ts');
 const playbook=adaptive.parseSalesPlaybook(`# Northstar Practice Guide
 ## Opening
-Set a clear purpose for this conversation.
+I'm trying to understand what you are doing around employee wellbeing, what is working, and where there may still be gaps.
 ## Discovery
 Explore the gaps between the support employees need and the support they can currently access.
+The gaps can include stress, burnout, absence, manager strain, low engagement, and underused support or resources.
 ## Positioning
-Root Health helps organisations understand wellbeing more continuously and see where support may be needed.
+Root Health is designed to help organisations understand wellbeing more continuously, rather than relying only on occasional surveys or one-off initiatives.
+It gives employees something useful day to day, while giving the organisation a clearer view of where support may be needed.
+## Approved Claims
+A follow-up can focus on one specific question or area the buyer wants to explore and what would be useful to them.
 ## Soft Close
 If this looks relevant, the sensible next step would be a short follow-up where I can show you how it works and we can decide whether it is worth exploring properly.
 ## Objection Handling
@@ -33,33 +37,153 @@ test('question classifier gives a genuine direct clarification priority over a m
  assert.equal(flow.classifyPracticeBuyerTurn("It sounds useful, but we don't have capacity this quarter."),'objection');
 });
 
-test('question bridge selects exact source-backed script sentences and preserves the suspended step',()=>{
- const bridge=flow.createPracticeQuestionBridge({question:'What kind of gaps do you usually find in companies?',playbook,currentScriptStepId:'discovery-1',buyerTurnId:'buyer-4'});
+test('gap question rejects the opening paraphrase and selects a grounded category list from anywhere in the playbook',()=>{
+ const bridge=flow.createPracticeQuestionBridge({question:'What kind of gaps are you thinking about?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-4'});
  assert.equal(bridge.questionBridgeActive,true);
- assert.equal(bridge.currentScriptStepId,'discovery-1');
- assert.equal(bridge.suspendedScriptStepId,'discovery-1');
+ assert.equal(bridge.currentScriptStepId,'opening-1');
+ assert.equal(bridge.suspendedScriptStepId,'opening-1');
  assert.equal(bridge.questionResolutionState,'awaiting_seller');
- assert.equal(bridge.sourceType,'playbook_step');
  assert.equal(bridge.sourceId,'discovery-1');
- assert.match(bridge.supportingText,/gaps/i);
- assert.match(bridge.approvedQuestionResponse,/approved script/i);
+ assert.ok(bridge.sourceIds.includes('discovery-2'),'the composed answer cites the category detail step');
+ assert.equal(bridge.sourceType,'playbook_step');
+ assert.match(bridge.supportingText,/stress, burnout, absence, manager strain/i);
+ assert.match(bridge.approvedQuestionResponse,/stress, burnout, absence, manager strain/i);
+ assert.doesNotMatch(bridge.approvedQuestionResponse,/trying to understand what you are doing/i);
+});
+
+test('solution question uses grounded Root capabilities rather than inventing interventions',()=>{
+ const bridge=flow.createPracticeQuestionBridge({question:'What kind of solutions do you typically recommend for these gaps?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-solutions'});
+ assert.equal(bridge.sourceId,'positioning-1');
+ assert.match(bridge.supportingText,/understand wellbeing more continuously/i);
+ assert.match(bridge.approvedQuestionResponse,/occasional surveys or one-off initiatives/i);
+ assert.doesNotMatch(bridge.approvedQuestionResponse,/recommend an intervention|guarantee|treatment/i);
 });
 
 test('positioning question can use the playbook close wording as a short practical answer',()=>{
  const bridge=flow.createPracticeQuestionBridge({question:'How exactly does it work in practice?',playbook,currentScriptStepId:'positioning-1',buyerTurnId:'buyer-8'});
  assert.equal(bridge.sourceType,'playbook_step');
- assert.equal(bridge.sourceId,'soft_close-1');
- assert.match(bridge.supportingText,/show you how it works/i);
+ assert.equal(bridge.sourceId,'positioning-2');
+ assert.match(bridge.supportingText,/employees something useful day to day/i);
 });
 
-test('soft-close clarification becomes a question bridge and keeps the terminal step suspended',()=>{
+test('soft-close clarification uses distinct approved detail and keeps the terminal step suspended',()=>{
  const original=flow.createPracticeQuestionBridge({question:'What would that follow-up look like?',playbook,currentScriptStepId:'soft_close-1',buyerTurnId:'buyer-10'});
- const next=flow.createPracticeQuestionBridge({question:'How long would the conversation be?',playbook,currentScriptStepId:'soft_close-1',existingBridge:original,buyerTurnId:'buyer-12'});
- assert.equal(original.sourceId,'soft_close-1');
+ const afterSeller=flow.markPracticeQuestionBridgeAnswerSubmitted(original);
+ const next=flow.createPracticeQuestionBridge({question:'How does that work for employees day to day?',playbook,currentScriptStepId:'soft_close-1',existingBridge:afterSeller,buyerTurnId:'buyer-12',previousSellerText:original.approvedQuestionResponse});
+ assert.equal(original.sourceType,'approved_claim');
  assert.equal(original.suspendedScriptStepId,'soft_close-1');
+ assert.equal(next.bridgeId,original.bridgeId);
+ assert.equal(next.originalQuestion,original.originalQuestion);
+ assert.equal(next.latestQuestion,'How does that work for employees day to day?');
  assert.equal(next.suspendedScriptStepId,'soft_close-1');
  assert.equal(next.currentScriptStepId,'soft_close-1');
  assert.equal(next.questionResolutionState,'awaiting_seller');
+ assert.equal(next.bridgeTurnCount,2);
+ assert.equal(next.answerHistory.length,1);
+ assert.notEqual(next.sourceId,original.sourceId);
+ assert.notEqual(next.approvedQuestionResponse,original.approvedQuestionResponse);
+});
+
+test('a seller-delivered answer cannot be selected again as a bridge source',()=>{
+ const first=flow.createPracticeQuestionBridge({question:'What kind of gaps are you thinking about?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-gap'});
+ const active=flow.markPracticeQuestionBridgeAnswerSubmitted(first);
+ const followUp=flow.createPracticeQuestionBridge({question:'What examples do you mean?',playbook,currentScriptStepId:'opening-1',existingBridge:active,buyerTurnId:'buyer-gap-followup',previousSellerText:first.approvedQuestionResponse});
+ assert.notEqual(followUp.sourceId,first.sourceId);
+ assert.notEqual(followUp.supportingText,first.supportingText);
+ assert.equal(followUp.answerHistory.length,1);
+});
+
+test('same-step wording is rejected when it repeats the seller turn without adding an answer',()=>{
+ const repeatedPlaybook=adaptive.parseSalesPlaybook(`# Repetition Guide
+## Opening
+Set a clear purpose for the call.
+## Discovery
+Common bottlenecks include approvals, handoffs, and delayed updates.`);
+ const delivered=repeatedPlaybook.scriptSteps.find(step=>step.id==='discovery-1').text;
+ const bridge=flow.createPracticeQuestionBridge({question:'What bottlenecks do you mean?',playbook:repeatedPlaybook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-repeat',previousSellerText:delivered});
+ assert.equal(bridge.sourceType,'safe_fallback');
+ assert.equal(bridge.resolutionState,'exhausted');
+ assert.match(bridge.approvedQuestionResponse,/don't want to guess/i);
+});
+
+test('unsupported questions fail safely and the same bridge is bounded after the fallback is delivered',()=>{
+ const first=flow.createPracticeQuestionBridge({question:'Can you guarantee results for every organisation?',playbook,currentScriptStepId:'positioning-1',buyerTurnId:'buyer-9'});
+ assert.equal(first.sourceType,'safe_fallback');
+ assert.equal(first.resolutionState,'exhausted');
+ assert.equal(first.fallbackDelivered,false);
+ const delivered=flow.markPracticeQuestionBridgeAnswerSubmitted(first);
+ assert.equal(delivered.fallbackDelivered,true);
+ assert.equal(delivered.resolutionState,'exhausted');
+ assert.equal(delivered.bridgeId,first.bridgeId);
+ assert.equal(flow.canContinuePracticeQuestionBridge(delivered),false,'a delivered non-claiming fallback closes the bounded detour');
+});
+
+test('unsupported direct question after a delivered fallback enters visible recovery without repeating fallback or opening a nested bridge',()=>{
+ const first=flow.createPracticeQuestionBridge({question:'Can you guarantee results for every organisation?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-guarantee'});
+ const delivered=flow.markPracticeQuestionBridgeAnswerSubmitted(first);
+ const recovery=flow.createPracticeQuestionRecovery(delivered,'Could you prescribe a treatment for that?');
+ assert.equal(recovery.bridgeId,first.bridgeId);
+ assert.equal(recovery.suspendedScriptStepId,'opening-1');
+ assert.equal(recovery.latestQuestion,'Could you prescribe a treatment for that?');
+ assert.equal(recovery.recoveryRequired,true);
+ assert.equal(recovery.fallbackDelivered,true);
+ assert.equal(recovery.sourceType,'safe_fallback');
+ assert.notEqual(recovery.approvedQuestionResponse,first.approvedQuestionResponse,'recovery is a distinct handoff instruction, not a repeated answer');
+ assert.match(recovery.approvedQuestionResponse,/Pause here/);
+ assert.equal(flow.canContinuePracticeQuestionBridge(recovery),false);
+});
+
+test('a supported direct question after a closed bridge starts as a separate question rather than nesting under the old id',()=>{
+ const completed=flow.markPracticeQuestionBridgeAnswerSubmitted(flow.createPracticeQuestionBridge({question:'Can you guarantee results for every organisation?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-guarantee'}));
+ const independent=flow.createPracticeQuestionBridge({question:'What kind of gaps are you thinking about?',playbook,currentScriptStepId:'opening-1',existingBridge:null,buyerTurnId:'buyer-new-question'});
+ assert.notEqual(independent.bridgeId,completed.bridgeId);
+ assert.equal(independent.originalQuestion,'What kind of gaps are you thinking about?');
+ assert.equal(independent.bridgeTurnCount,1);
+ assert.equal(independent.sourceId,'discovery-1');
+ assert.ok(independent.sourceIds.includes('discovery-2'));
+});
+
+test('bridge answers are bounded and exhaustion emits one final non-claiming fallback',()=>{
+ const first=flow.createPracticeQuestionBridge({question:'What kind of gaps are you thinking about?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'bridge-limit-1'});
+ const second=flow.createPracticeQuestionBridge({question:'What solutions do you recommend?',playbook,currentScriptStepId:'opening-1',existingBridge:flow.markPracticeQuestionBridgeAnswerSubmitted(first),buyerTurnId:'bridge-limit-2'});
+ const third=flow.createPracticeQuestionBridge({question:'How does it work day to day?',playbook,currentScriptStepId:'opening-1',existingBridge:flow.markPracticeQuestionBridgeAnswerSubmitted(second),buyerTurnId:'bridge-limit-3'});
+ assert.equal(third.bridgeTurnCount,3);
+ assert.equal(third.resolutionState,'exhausted');
+ assert.equal(third.sourceType,'playbook_step');
+ const finalFallback=flow.createPracticeQuestionBridge({question:'What else can you recommend?',playbook,currentScriptStepId:'opening-1',existingBridge:flow.markPracticeQuestionBridgeAnswerSubmitted(third),buyerTurnId:'bridge-limit-4'});
+ assert.equal(finalFallback.bridgeId,first.bridgeId);
+ assert.equal(finalFallback.suspendedScriptStepId,'opening-1');
+ assert.equal(finalFallback.sourceType,'safe_fallback');
+ assert.match(finalFallback.approvedQuestionResponse,/don't want to guess/i);
+ assert.equal(flow.canContinuePracticeQuestionBridge(flow.markPracticeQuestionBridgeAnswerSubmitted(finalFallback)),false);
+});
+
+test('arbitrary uploaded playbooks answer a category question without Root-specific runtime assumptions',()=>{
+ const arbitrary=adaptive.parseSalesPlaybook(`# Acme Guide
+## Opening
+Let's understand the current process.
+## Discovery
+Common bottlenecks include approvals, handoffs, duplicated entry, and delayed updates.
+## Solution
+The workflow brings approvals and handoffs into one shared view.`);
+ const bridge=flow.createPracticeQuestionBridge({question:'What kinds of bottlenecks do teams face?',playbook:arbitrary,currentScriptStepId:'opening-1',buyerTurnId:'buyer-generic'});
+ assert.equal(bridge.sourceId,'discovery-1');
+ assert.match(bridge.supportingText,/approvals, handoffs, duplicated entry/i);
+});
+
+test('a relevant composed answer can join adjacent approved facts and records every supporting playbook id',()=>{
+ const composition=adaptive.parseSalesPlaybook(`# Field Guide
+## Opening
+Set a clear purpose.
+## Positioning
+The approach is designed to help teams understand patterns over time.
+It provides managers with a clearer view of employee support needs.
+## Soft Close
+Agree a useful next step.`);
+ const bridge=flow.createPracticeQuestionBridge({question:'What solutions do you recommend?',playbook:composition,currentScriptStepId:'opening-1',buyerTurnId:'buyer-composed'});
+ assert.deepEqual([...bridge.sourceIds],['positioning-1','positioning-2']);
+ assert.match(bridge.supportingText,/patterns over time.*provides managers/i);
+ assert.match(bridge.approvedQuestionResponse,/patterns over time.*provides managers/i);
 });
 
 test('unsupported question uses a safe non-claiming answer rather than inventing facts',()=>{
@@ -78,6 +202,7 @@ test('terminal outcomes are explicit and objections remain on the separate objec
  assert.equal(flow.practiceTerminalOutcome('clear_rejection'),'declined');
  assert.equal(flow.practiceTerminalOutcome('objection'),null);
  assert.equal(flow.practiceTerminalOutcome('direct_question'),null);
+ assert.equal(flow.classifyPracticeBuyerTurn('We do not have capacity this quarter, so how would you handle that?'),'objection','a concrete objection takes precedence over its question form');
  assert.equal(flow.practiceTerminalOutcomeLabel('interested_follow_up'),'Practice complete — buyer interested in follow-up.');
  assert.equal(flow.practiceTerminalOutcomeLabel('not_ready'),'Practice complete — buyer not ready.');
  assert.equal(flow.practiceTerminalOutcomeLabel('declined'),'Practice complete — buyer declined.');
