@@ -45,6 +45,19 @@ test('after manual advance the existing question and objection classifiers remai
  assert.equal(result.status,'advance');assert.equal(flow.classifyPracticeBuyerTurn('What does the membership include?'),'direct_question');assert.equal(flow.classifyPracticeBuyerTurn('We have no budget for another provider.'),'objection');
 });
 
+test('Space suppression diagnostics are safe and identify the actionable stop condition',()=>{
+ const validPlan=manual.resolveManualPracticeAdvance(baseInput(navFor('opening-1')));
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key({target:{tagName:'INPUT',closest:()=>null}}),activePractice:true,phase:'live',turnState:'ready',plan:validPlan}),'invalid_focus');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'live',turnState:'buyer_generating',plan:validPlan}),'generation_in_flight');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'live',turnState:'ready',plan:manual.resolveManualPracticeAdvance(baseInput(navFor('soft_close-1')))}),'terminal');
+ const noNextPlan=manual.resolveManualPracticeAdvance(baseInput(navFor('discovery-3'),{playbook:{scriptSteps:playbook.scriptSteps.slice(0,-1)}}));
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'live',turnState:'ready',plan:noNextPlan}),'no_next_step');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:false,phase:'live',turnState:'ready',plan:manual.resolveManualPracticeAdvance(baseInput(navFor('opening-1'),{active:false}))}),'inactive_practice');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'inactive',turnState:'ready',plan:validPlan}),'invalid_phase');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'live',turnState:'ready',plan:manual.resolveManualPracticeAdvance(baseInput(null))}),'stale_state');
+ assert.equal(manual.manualPracticeSpaceSuppressionReason({event:key(),activePractice:true,phase:'live',turnState:'ready',plan:validPlan}),null);
+});
+
 test('terminal soft-close step is a no-op',()=>{
  const terminal=playbook.scriptSteps.at(-1);assert.equal(terminal.id,'soft_close-1');const result=manual.resolveManualPracticeAdvance(baseInput(navFor(terminal.id)));assert.equal(result.status,'unavailable');assert.equal(result.reason,'current_step_terminal');
 });

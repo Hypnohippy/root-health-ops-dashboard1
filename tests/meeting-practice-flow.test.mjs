@@ -37,6 +37,23 @@ test('question classifier gives a genuine direct clarification priority over a m
  assert.equal(flow.classifyPracticeBuyerTurn("It sounds useful, but we don't have capacity this quarter."),'objection');
 });
 
+test('grounded answers add one relevant seller control question without changing fallback wording',()=>{
+ assert.equal(flow.practiceQuestionControlMove('product_capabilities','discovery','What tools are available?'),'Would that kind of organisational visibility be useful to explore further?');
+ assert.equal(flow.practiceQuestionControlMove('pricing','discovery','How much does it cost?'),'Does that give you enough to judge whether the range is realistic for your organisation?');
+ assert.equal(flow.practiceQuestionControlMove('comparison','discovery','We already have an EAP; could this complement it?'),'If it complemented your existing EAP, would there be value in exploring how the two could work together?');
+ assert.equal(flow.practiceQuestionControlMove('product_capabilities','positioning','What tools are available?'),'Would that address the gap you described?');
+ assert.equal(flow.practiceQuestionControlMove('general','objections','We do not have capacity this quarter.'),'If we can address that concern, would you be comfortable exploring a next step?');
+ assert.equal(flow.practiceQuestionControlMove('general','soft_close','What would the follow-up cover?'),'Would a short follow-up to decide whether it is worth exploring be useful?');
+ assert.equal(flow.practiceQuestionControlMove('general','discovery','Could you clarify?'),null,'an unsupported fallback is not decorated with new claims or wording');
+});
+
+test('Knowledge prompt context uses only verified seller transcript and rejects unknown wording IDs',()=>{
+ const knowledgeContext=flow.resolvePracticeBuyerSellerPromptContext({playbook,activeWordingId:'knowledge:root-local:item-007',currentScriptStepId:'discovery-1',sellerTurnText:'The source says leaders receive anonymous reporting.'});
+ assert.equal(knowledgeContext.kind,'verified_seller_turn');assert.equal(knowledgeContext.id,'verified-seller-turn');assert.equal(knowledgeContext.section,'discovery');assert.equal(knowledgeContext.text,'The source says leaders receive anonymous reporting.');
+ assert.equal(flow.resolvePracticeBuyerSellerPromptContext({playbook,activeWordingId:'invented-source',currentScriptStepId:'discovery-1',sellerTurnText:'Unverified caller wording.'}),null);
+ assert.equal(flow.resolvePracticeBuyerSellerPromptContext({playbook,activeWordingId:'knowledge:item-7',currentScriptStepId:'not-in-playbook',sellerTurnText:'A verified answer.'}),null);
+});
+
 test('gap question rejects the opening paraphrase and selects a grounded category list from anywhere in the playbook',()=>{
  const bridge=flow.createPracticeQuestionBridge({question:'What kind of gaps are you thinking about?',playbook,currentScriptStepId:'opening-1',buyerTurnId:'buyer-4'});
  assert.equal(bridge.questionBridgeActive,true);
@@ -313,9 +330,17 @@ test('recovery always supplies self-sufficient spoken wording and a normal buyer
 test('synthetic buyer text is concise by default; longer output needs an explicit scenario need',()=>{
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. What do employees find most useful?'),true);
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Our managers also check in. I am unsure what else is available. What would you recommend?'),false);
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget(Array(29).fill('word').join(' ')),false,'default buyer speech is capped at 28 words');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Would more continuous insight help?'),true,'short buyer turns remain natural and valid');
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(600)),false);
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We have several teams and different support needs. Our current process combines surveys and manager conversations. We need a clear view across those sources. Could you show how the evidence is organised?',true),true,'an explicit scenario need permits a bounded longer reply');
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(1300),true),false,'even an explicit scenario need remains bounded');
+});
+
+test('buyer prompt instructs Alex to answer the seller control move instead of asking a fresh product question',()=>{
+ assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/answer that question first/i);
+ assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/do not introduce a new product question/i);assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/do not ask a new product question after every seller turn/i);
+ assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/12–28 spoken words/i);
 });
 
 test('Practice latency summary reports per-cycle median and p95 without inventing live samples',()=>{

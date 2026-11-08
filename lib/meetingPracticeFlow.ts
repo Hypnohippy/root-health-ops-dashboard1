@@ -29,6 +29,7 @@ export type PracticeQuestionBridge={
  fallbackDelivered:boolean;
  questionSummary:string;
  approvedQuestionResponse:string;
+ sellerControlQuestion:string|null;
  questionResolutionState:PracticeQuestionResolution;
  sourceType:PracticeQuestionSource;
  sourceId:string|null;
@@ -38,6 +39,21 @@ export type PracticeQuestionBridge={
  recoveryCount?:number;
  retrievalDiagnostics?:PracticeQuestionRetrievalDiagnostics;
 };
+
+export type PracticeBuyerSellerPromptContext=
+ |{kind:'uploaded_playbook_wording';id:string;section:string;text:string}
+ |{kind:'verified_seller_turn';id:'verified-seller-turn';section:string;text:string};
+
+/** Resolve buyer-generation context without treating a local Knowledge ID as playbook authority. */
+export function resolvePracticeBuyerSellerPromptContext(input:{playbook:SalesPlaybook;activeWordingId:string;currentScriptStepId:string;sellerTurnText:string}):PracticeBuyerSellerPromptContext|null{
+ const id=input.activeWordingId,step=input.playbook.scriptSteps.find(item=>item.id===id),branch=input.playbook.objectionBranches.find(item=>item.id===id),currentStep=input.playbook.scriptSteps.find(item=>item.id===input.currentScriptStepId),claimIndex=/^claim-([1-9]\d*)$/.exec(id),claim=claimIndex?input.playbook.approvedClaims[Number(claimIndex[1])-1]:undefined,section=branch?'objections':step?.section||currentStep?.section;
+ if(section&&(step||branch))return {kind:'uploaded_playbook_wording',id,section,text:branch?.response||step!.text};
+ if(claim&&section)return {kind:'uploaded_playbook_wording',id,section,text:claim};
+ // Knowledge is prepared from a user-provided local source and is not available as server-side playbook content.
+ // The seller transcript is already server-attested, so it is safe buyer context without calling it approved wording.
+ if(/^knowledge:[a-z0-9._:-]{1,160}$/i.test(id)&&currentStep&&input.sellerTurnText.trim())return {kind:'verified_seller_turn',id:'verified-seller-turn',section:currentStep.section,text:input.sellerTurnText.trim()};
+ return null;
+}
 export type PracticeScriptCoverageStatus='not_covered'|'partially_covered'|'covered'|'explicitly_delivered';
 export type PracticeScriptCoverageRecord={stepId:string;status:PracticeScriptCoverageStatus;sellerTurnId:string;sourceIds:string[];bridgeOrRouteId:string;reason:string;evidenceText:string;confidence:number};
 export type PracticeTerminalOutcome='interested_follow_up'|'not_ready'|'declined';
@@ -74,7 +90,7 @@ const stopWords=new Set(['what','when','where','which','who','whom','whose','why
 function normalizeToken(token:string){return token.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/ies$/,'y').replace(/s$/,'').replace(/ing$/,'').replace(/ed$/,'');}
 function tokens(value:string){return value.toLowerCase().split(/[^a-z0-9]+/).map(normalizeToken).filter(token=>token.length>2&&!stopWords.has(token));}
 function sentenceList(source:string){return source.split(/(?<=[.!?])\s+/).map(value=>value.trim()).filter(Boolean);}
-type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_capabilities'|'product_mechanism'|'employee_proposition'|'employer_proposition'|'reporting_visibility'|'pricing'|'signup_process'|'commitment'|'comparison'|'follow_up_detail'|'general';
+export type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_capabilities'|'product_mechanism'|'employee_proposition'|'employer_proposition'|'reporting_visibility'|'pricing'|'signup_process'|'commitment'|'comparison'|'follow_up_detail'|'general';
 function questionIntent(question:string,context=''):PracticeQuestionIntent{
  if(/\b(?:different from|compared with|compare with|already have|currently use|existing system)\b/i.test(question))return 'comparison';
  if(/\b(?:how much|price|pricing|cost|costs)\b/i.test(question))return 'pricing';
@@ -93,6 +109,23 @@ function questionIntent(question:string,context=''):PracticeQuestionIntent{
   const contextualGap=/\b(gaps?|pressure|absence|burnout|stress|manager strain|engagement|underused support|existing support)\b/i.test(context);
   if(gapTopic||asksForAreas&&contextualGap||/\b(gaps?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction)\b/i.test(question)&&/\b(kind|type|example|what|which|mean|specifically)\b/i.test(question))return 'gap_categories';
  return 'general';
+}
+
+/** Add one concise, grounded seller control move to supported answers only. */
+export function practiceQuestionControlMove(intent:PracticeQuestionIntent,section:string,question:string):string|null{
+ if(/\b(?:eap|employee assistance|existing (?:wellbeing|wellness|support) provider)\b/i.test(question))return 'If it complemented your existing EAP, would there be value in exploring how the two could work together?';
+ if(section==='positioning')return 'Would that address the gap you described?';
+ if(section==='objections')return 'If we can address that concern, would you be comfortable exploring a next step?';
+ if(section==='soft_close')return 'Would a short follow-up to decide whether it is worth exploring be useful?';
+ if(intent==='pricing')return 'Does that give you enough to judge whether the range is realistic for your organisation?';
+ if(intent==='product_capabilities'||intent==='reporting_visibility'||intent==='employer_proposition')return 'Would that kind of organisational visibility be useful to explore further?';
+ if(intent==='employee_proposition')return 'Would that sort of support be relevant to the employees you have in mind?';
+ if(intent==='commitment'||intent==='signup_process')return 'Would it help to talk through how that could work for your organisation?';
+ if(intent==='product_mechanism'||intent==='solution_capability')return 'Does that answer how it works, or is there one part you would like me to clarify?';
+ if(intent==='comparison')return 'Would it be useful to explore how that could fit alongside what you already have?';
+ if(intent==='gap_categories')return 'Which of those areas is most relevant to what you are seeing?';
+ if(intent==='follow_up_detail')return 'Would that be a useful focus for the next conversation?';
+ return null;
 }
 function naturalList(values:string[]){if(values.length<2)return values[0]||'';if(values.length===2)return `${values[0]} or ${values[1]}`;return `${values.slice(0,-1).join(', ')} or ${values.at(-1)}`;}
 function gapConcepts(sentence:string):string[]{
@@ -216,7 +249,7 @@ export function createPracticeQuestionRecovery(bridge:PracticeQuestionBridge,que
  const previousAnswer=bridge.questionResolutionState==='awaiting_buyer'?{question:bridge.latestQuestion,answer:bridge.approvedQuestionResponse,sourceType:bridge.sourceType,sourceId:bridge.sourceId,sourceIds:bridge.sourceIds,supportingText:bridge.supportingText}:null;
  const recoveryCount=(bridge.recoveryCount||0)+1;
  const recoveryWording=fallbackAnswerFor(questionIntent(question,[bridge.originalQuestion,bridge.latestQuestion].join(' ')),question,recoveryCount);
- return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
+ return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,sellerControlQuestion:null,questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
 }
 
 const coverageStopWords=new Set(['about','after','again','also','and','are','around','because','been','being','between','but','can','could','does','doing','each','from','have','here','how','into','just','more','most','much','need','needs','our','over','same','some','such','than','that','the','their','them','then','there','these','they','this','those','through','what','when','where','which','while','who','will','with','would','your','you','for','its']);
@@ -251,10 +284,12 @@ export function skipCoveredPracticeSteps(navigation:ScriptNavigation,playbook:Sa
  return {navigation:{...navigation,currentScriptSection:target.section,recommendedScriptSection:target.section,scriptStepId:target.id,currentScriptStepId:target.id,visibleScriptText:target.text,staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false,nextSequentialScriptStepId:next?.id||null,approvedScriptBranchId:null,activeAdaptiveRoute:false,adaptiveOverride:false,resumeScriptSection:null,resumeScriptStepId:null,routeReason:`Skip ${skipped.map(record=>record.stepId).join(', ')} because source-backed seller turns already covered those script objectives.`},skipped,allRemainingCovered:false};
 }
 
+export const PRACTICE_BUYER_RESPONSE_INSTRUCTIONS='When the seller asks a direct control question, answer that question first and do not introduce a new product question. Otherwise respond to what the seller said; ask at most one relevant question only when you have a genuine unresolved concern or need clarification. Do not ask a new product question after every seller turn. Usually respond in 1–2 natural sentences and 12–28 spoken words; a brief acknowledgement may be shorter. Keep the buyer realistic and do not move the script.';
+
 export function practiceBuyerResponseWithinDefaultBudget(text:string,explicitScenarioNeed=false){
  const value=text.trim(),sentences=value.split(/(?<=[.!?])\s+/).filter(Boolean);
  const wordCount=value.split(/\s+/).filter(Boolean).length;
- return !!value&&value.length<=(explicitScenarioNeed?1200:300)&&sentences.length<=(explicitScenarioNeed?6:2)&&(explicitScenarioNeed||wordCount<=38);
+ return !!value&&value.length<=(explicitScenarioNeed?1200:300)&&sentences.length<=(explicitScenarioNeed?6:2)&&(explicitScenarioNeed||wordCount<=28);
 }
 
 export function summarizePracticeLatency(events:Array<{turnOrder?:number;latencyStage?:string;at?:number}>){
@@ -289,7 +324,7 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
  const base={
   id:bridgeId,bridgeId,currentScriptStepId:suspendedScriptStepId,questionBridgeActive:true as const,suspendedScriptStepId,
   originalQuestion:existing?.originalQuestion||input.question,latestQuestion:input.question,answerHistory,bridgeTurnCount,
-  questionSummary:input.question.slice(0,240),questionResolutionState:'awaiting_seller' as const,recoveryRequired:false,
+  questionSummary:input.question.slice(0,240),questionResolutionState:'awaiting_seller' as const,recoveryRequired:false,sellerControlQuestion:null as string|null,
  };
  const intent=questionIntent(input.question,[existing?.originalQuestion||'',existing?.latestQuestion||'',input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId)?.text||'',...input.playbook.scriptSteps.map(step=>step.text),...input.playbook.approvedClaims].join(' '));
  const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:intent==='product_capabilities'?(input.knowledgePack?'I don’t want to overstate what the prepared source says. Let’s note that specific feature to verify after the conversation.':'I don’t want to guess about specific tools or features. Let’s note that detail to verify after the conversation.'):fallbackAnswerFor(intent,input.question),sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics});
@@ -359,7 +394,7 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
  if(!selected){const relevantCandidates=evaluated.filter(candidate=>candidate.exactAnswerScore>0||candidate.relevantConceptScore>0);diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason=diagnostics.fallbackReason|| (existing?.resolutionState==='exhausted'?'previous_bridge_exhausted_no_nested_bridge':bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'bridge_turn_limit_reached':relevantCandidates.length?'all_relevant_candidates_rejected_by_repetition_or_quality_gate':candidates.length?'no_direct_or_relevant_approved_concept':'no_approved_candidates');if(diagnostics.knowledgeLookupAttempted)diagnostics.knowledgeFallbackReason=knowledgeCandidates.length?'no_supported_knowledge_answer':'prepared_pack_has_no_relevant_items';diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);return safeFallback('exhausted',diagnostics);}
  const supportingText=selected.candidate.text,sourceType=selected.candidate.sourceType;let sellerWording=selected.answer;
  if(sourceType==='prepared_knowledge'){diagnostics.selectedKnowledgeIds=[...new Set(selected.sourceIds.map(id=>id.replace(/^knowledge:/,'')))];diagnostics.knowledgeAnswerPath=diagnostics.knowledgeAnswerPath||diagnostics.selectedPath||'direct_prepared_knowledge';const selectedFacts=selected.sourceIds.map(id=>sourceById.get(id)).filter((source):source is NonNullable<typeof source>=>!!source&&source.sourceType==='prepared_knowledge').map(source=>({section:source.section,text:source.text,...('category' in source?{category:source.category}:{})}));sellerWording=concisePreparedKnowledgeAnswer(intent,selectedFacts)||selected.answer;}diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);
- return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:sellerWording,sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
+  return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:sellerWording,sellerControlQuestion:practiceQuestionControlMove(intent,currentStep?.section||'unknown',input.question),sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
 }
 
 export function practiceTerminalOutcome(classification:PracticeBuyerClassification):PracticeTerminalOutcome|null{
