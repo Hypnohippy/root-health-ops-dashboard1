@@ -180,11 +180,72 @@ test('unsupported questions fail safely and the same bridge is bounded after the
  assert.equal(first.sourceType,'safe_fallback');
  assert.equal(first.resolutionState,'exhausted');
  assert.equal(first.fallbackDelivered,false);
+ assert.equal(first.classification,'direct_evidence_challenge');
+ assert.equal(first.evidenceFamily,'outcome_evidence');
+ assert.equal(first.canonicalAction,'resume_or_advance');
+ assert.equal(first.detourAction,'close');
+ assert.equal(first.sourceIds.length,0,'an unsupported fallback carries no fabricated provenance');
+ assert.match(first.approvedQuestionResponse,/prepared material that supports that claim/i);
+ assert.match(first.approvedQuestionResponse,/support and visibility we’ve discussed/i);
+ assert.match(first.sellerControlQuestion,/relevant enough to explore/i);
  const delivered=flow.markPracticeQuestionBridgeAnswerSubmitted(first);
  assert.equal(delivered.fallbackDelivered,true);
  assert.equal(delivered.resolutionState,'exhausted');
  assert.equal(delivered.bridgeId,first.bridgeId);
  assert.equal(flow.canContinuePracticeQuestionBridge(delivered),false,'a delivered non-claiming fallback closes the bounded detour');
+});
+
+test('unsupported outcomes are reframed without volunteering a limitation and receive a bounded stage-aware control move',()=>{
+ const ordinary=flow.createPracticeQuestionBridge({question:'Can you give me specific examples of how Root has reduced absence and burnout?',playbook,currentScriptStepId:'discovery-1',buyerTurnId:'buyer-outcomes'});
+ assert.equal(ordinary.classification,'unsupported_evidence_request');assert.equal(ordinary.detourAction,'close');assert.equal(ordinary.canonicalAction,'resume_or_advance');
+ assert.equal(ordinary.sourceType,'safe_fallback');assert.equal(ordinary.sourceIds.length,0);assert.equal(ordinary.sourceId,null);assert.equal(ordinary.supportingText,null);
+ assert.match(ordinary.approvedQuestionResponse,/What I can show you is how the approved approach relates to the pressures you’ve described/i);
+ assert.doesNotMatch(ordinary.approvedQuestionResponse,/don’t have|can’t substantiate|case study/i,'ordinary unsupported requests do not receive an unnecessary disclaimer');
+ assert.match(ordinary.sellerControlQuestion,/Which of those pressures would matter most to improve first/i);
+ assert.doesNotMatch(`${ordinary.approvedQuestionResponse} ${ordinary.sellerControlQuestion}`,/what would you like me to clarify|anything else you want to know|does that answer your question/i);
+ const positioning=flow.createPracticeQuestionBridge({question:'Could you share general outcomes?',playbook,currentScriptStepId:'positioning-1',buyerTurnId:'buyer-positioning'});
+ assert.match(positioning.approvedQuestionResponse,/support and visibility we’ve discussed/i);assert.match(positioning.sellerControlQuestion,/relevant enough to explore further/i);
+ const close=flow.createPracticeQuestionBridge({question:'What general benefits have other organisations seen?',playbook,currentScriptStepId:'soft_close-1',buyerTurnId:'buyer-close'});
+ assert.match(close.approvedQuestionResponse,/how the approach could work in your environment/i);assert.match(close.sellerControlQuestion,/short follow-up/i);
+});
+
+test('outcome-evidence family matches paraphrased requests but does not absorb unrelated buyer questions',()=>{
+ const first=flow.createPracticeQuestionBridge({question:'Can you give me specific examples of how Root has reduced absence and burnout?',playbook,currentScriptStepId:'discovery-1',buyerTurnId:'evidence-family'});
+ const delivered=flow.markPracticeQuestionBridgeAnswerSubmitted(first);
+ for(const reformulation of ['What are the general outcomes?','What are the general benefits?','Do you have engagement examples?','Can you show success stories from other organisations?','Has Root demonstrably reduced absence?'])assert.equal(flow.shouldClosePracticeQuestionDetour(delivered,reformulation),true,reformulation);
+ assert.equal(flow.shouldClosePracticeQuestionDetour(delivered,'How does membership work?'),false,'an unrelated question can start its own bounded supported retrieval');
+ assert.equal(flow.shouldClosePracticeQuestionDetour(first,'What are the general outcomes?'),false,'the detour is not closed before the seller has delivered its control move');
+});
+
+test('direct outcome-evidence challenges answer truthfully, then reframe and provide a bounded commercial control move',()=>{
+ for(const question of ['Do you actually have a case study?','Do you have proven examples?','Has Root demonstrably reduced absence?']){
+  const bridge=flow.createPracticeQuestionBridge({question,playbook,currentScriptStepId:'discovery-1',buyerTurnId:`direct-evidence-${question.length}`});
+  assert.equal(bridge.classification,'direct_evidence_challenge',question);assert.equal(bridge.sourceIds.length,0);
+  assert.match(bridge.approvedQuestionResponse,/don’t have an approved case study or outcome evidence in the prepared material/i,question);
+  assert.match(bridge.approvedQuestionResponse,/What I can show you/i,question);
+  assert.ok(bridge.sellerControlQuestion,question);assert.equal(bridge.detourAction,'close');
+ }
+});
+
+test('unsupported evidence control wording stays grounded and is specific to discovery, positioning, objection, and close',()=>{
+ const expected={
+  discovery:/Which of those pressures would matter most to improve first/i,
+  positioning:/Is that capability relevant enough to explore further/i,
+  objections:/If that addressed the concern, would it be worth moving to the next step/i,
+  soft_close:/would a short follow-up be the sensible next step/i,
+ };
+ for(const [section,control] of Object.entries(expected)){const result=flow.practiceUnsupportedEvidenceMove(section,'Could you show me case studies?', 'unsupported_evidence_request');assert.match(result.groundedAnswer,/What I can show you/i,section);assert.match(result.sellerControlMove,control,section);}
+ const objection=flow.createPracticeQuestionBridge({question:'Could you give me case studies about burnout?',playbook,currentScriptStepId:'opening-1',currentScriptSection:'objections',buyerTurnId:'objection-stage'});
+ assert.equal(objection.suspendedScriptSection,'objections');assert.match(objection.sellerControlQuestion,/If that addressed the concern/i);
+});
+
+test('unsupported evidence turn contract closes the detour and retains the explicit canonical return point',()=>{
+ const bridge=flow.createPracticeQuestionBridge({question:'Can you give me success stories about burnout outcomes?',playbook,currentScriptStepId:'discovery-1',buyerTurnId:'buyer-contract'});
+ assert.deepEqual({classification:bridge.classification,detourAction:bridge.detourAction,canonicalAction:bridge.canonicalAction,suspendedScriptStepId:bridge.suspendedScriptStepId}, {classification:'unsupported_evidence_request',detourAction:'close',canonicalAction:'resume_or_advance',suspendedScriptStepId:'discovery-1'});
+ const submitted=flow.markPracticeQuestionBridgeAnswerSubmitted(bridge);
+ assert.equal(submitted.questionResolutionState,'awaiting_buyer');
+ assert.equal(flow.shouldClosePracticeQuestionDetour(submitted,'What about general benefits?'),true);
+ assert.equal(submitted.sourceIds.length,0,'there is no unsupported evidence provenance to promote');
 });
 
 test('unsupported direct question after a delivered fallback enters visible recovery without repeating fallback or opening a nested bridge',()=>{
@@ -261,7 +322,8 @@ test('unsupported question uses a safe non-claiming answer rather than inventing
  assert.equal(bridge.sourceType,'safe_fallback');
  assert.equal(bridge.sourceId,null);
  assert.equal(bridge.supportingText,null);
- assert.match(bridge.approvedQuestionResponse,/approved information about guaranteed results/i);
+ assert.match(bridge.approvedQuestionResponse,/prepared material that supports that claim/i);
+ assert.match(bridge.sellerControlQuestion,/relevant enough to explore/i);
  assert.doesNotMatch(bridge.approvedQuestionResponse,/we guarantee|guaranteed outcomes/i);
 });
 
@@ -305,6 +367,20 @@ test('bridge-delivered source-backed discovery content records provenance and sk
  assert.equal(skipped.allRemainingCovered,false);
 });
 
+test('canonical return after an exhausted detour skips already source-backed contiguous coverage instead of staying behind it',()=>{
+ const navigation={routeDirection:'advance',activeAdaptiveRoute:false,approvedScriptBranchId:null,scriptStepId:'discovery-2',currentScriptStepId:'discovery-2',currentScriptSection:'discovery',recommendedScriptSection:'discovery',nextSequentialScriptStepId:'positioning-1',visibleScriptText:'Ask what is working.',staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false};
+ const coverage={
+  'discovery-2':{stepId:'discovery-2',status:'covered',sellerTurnId:'seller-d2',sourceIds:['discovery-2'],bridgeOrRouteId:'prior-bridge',reason:'source_backed_seller_turn',evidenceText:'We have already discussed the current approach in detail.',confidence:0.9},
+  'positioning-1':{stepId:'positioning-1',status:'explicitly_delivered',sellerTurnId:'seller-p1',sourceIds:['positioning-1'],bridgeOrRouteId:'prior-bridge',reason:'source_backed_seller_turn',evidenceText:'The approach gives a clearer view of support needs.',confidence:0.95},
+  'positioning-2':{stepId:'positioning-2',status:'covered',sellerTurnId:'seller-p2',sourceIds:['positioning-2'],bridgeOrRouteId:'prior-bridge',reason:'source_backed_seller_turn',evidenceText:'Employees receive day-to-day support.',confidence:0.9},
+ };
+ const resumed=flow.skipCoveredPracticeSteps(navigation,playbook,coverage);
+ assert.equal(resumed.navigation.scriptStepId,'soft_close-1');
+ assert.equal(resumed.skipped.map(record=>record.stepId).join(','),'discovery-2,positioning-1,positioning-2');
+ assert.equal(resumed.allRemainingCovered,false);
+ assert.equal(resumed.navigation.activeAdaptiveRoute,false,'the application retains canonical navigation ownership on return');
+});
+
 test('unrelated, partial, and objection-route evidence cannot skip canonical script wording',()=>{
  const navigation={routeDirection:'advance',activeAdaptiveRoute:false,approvedScriptBranchId:null,scriptStepId:'discovery-1',currentScriptStepId:'discovery-1',currentScriptSection:'discovery',recommendedScriptSection:'discovery',nextSequentialScriptStepId:'discovery-2',visibleScriptText:'Explore the current approach.',staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false};
  const coverage={ 'discovery-1':{stepId:'discovery-1',status:'partially_covered',sellerTurnId:'seller-1',sourceIds:['discovery-1'],bridgeOrRouteId:'bridge-1',reason:'partial',evidenceText:'We do some wellbeing work.',confidence:0.3} };
@@ -343,6 +419,7 @@ test('buyer length and style are soft targets while empty, oversized and role-la
 test('buyer prompt instructs Alex to answer the seller control move instead of asking a fresh product question',()=>{
  assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/answer that question first/i);
  assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/do not introduce a new product question/i);assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/do not ask a new product question after every seller turn/i);
+ assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/do not repeat or paraphrase the same request for case studies/i);
  assert.match(flow.PRACTICE_BUYER_RESPONSE_INSTRUCTIONS,/12–28 spoken words/i);
 });
 

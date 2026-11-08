@@ -5,6 +5,8 @@ export type PracticeBuyerClassification='normal_response'|'objection'|'direct_qu
 export type PracticeQuestionSource='playbook_step'|'approved_claim'|'prepared_knowledge'|'safe_fallback';
 export type PracticeQuestionResolution='awaiting_seller'|'awaiting_buyer';
 export type PracticeQuestionBridgeResolution='active'|'exhausted';
+export type PracticeQuestionDecisionClassification='supported_question'|'unsupported_question'|'unsupported_evidence_request'|'direct_evidence_challenge';
+export type PracticeQuestionEvidenceFamily='outcome_evidence';
 export type PracticeQuestionAnswerHistoryEntry={
  question:string;
  answer:string;
@@ -21,6 +23,7 @@ export type PracticeQuestionBridge={
  currentScriptStepId:string;
  questionBridgeActive:true;
  suspendedScriptStepId:string;
+ suspendedScriptSection?:string;
  originalQuestion:string;
  latestQuestion:string;
  answerHistory:PracticeQuestionAnswerHistoryEntry[];
@@ -38,6 +41,10 @@ export type PracticeQuestionBridge={
  recoveryRequired?:boolean;
  recoveryCount?:number;
  retrievalDiagnostics?:PracticeQuestionRetrievalDiagnostics;
+ classification?:PracticeQuestionDecisionClassification;
+ evidenceFamily?:PracticeQuestionEvidenceFamily|null;
+ canonicalAction?:'resume_or_advance';
+ detourAction?:'continue'|'close';
 };
 
 export type PracticeBuyerSellerPromptContext=
@@ -86,12 +93,46 @@ export function classifyPracticeBuyerTurn(text:string):PracticeBuyerClassificati
  return 'normal_response';
 }
 
+const directOutcomeEvidenceChallenge=/\b(?:do you (?:actually )?have|does root have|has root|have you got|is there|are there|has root demonstrably|did root|does it demonstrably)\b.{0,90}\b(?:case stud(?:y|ies)|success stor(?:y|ies)|proven examples?|evidence|proof|outcomes?|benefits?|trends?|reduc(?:e|ed|ing) (?:staff )?(?:absence|burnout)|improv(?:e|ed|ing) engagement)\b|\b(?:has root demonstrably|has root actually)\b.{0,60}\b(?:reduced|improved|increased|changed)\b/i;
+const outcomeEvidenceTerms=/\b(case stud(?:y|ies)|success stor(?:y|ies)|examples?|proven examples?|proof|evidence|outcomes?|benefits?|trends?|engagement improvements?|reduc(?:e|ed|ing) (?:staff )?(?:absence|burnout)|absence reductions?|burnout reductions?|guarantee(?:d)? results?)\b/i;
+const evidenceContextTerms=/\b(absence|burnout|engagement|wellbeing|well-being|workforce|organisation|organization|teams?|employees?|results?|impact|reduc(?:e|ed|ing)|improv(?:e|ed|ing)|success|root)\b/i;
+
+/** Keeps requests for unapproved outcome proof in one bounded commercial family. */
+export function classifyPracticeOutcomeEvidenceQuestion(question:string):{classification:'unsupported_evidence_request'|'direct_evidence_challenge';family:PracticeQuestionEvidenceFamily}|null{
+ const text=question.trim();
+ if(!text||!outcomeEvidenceTerms.test(text))return null;
+ if(directOutcomeEvidenceChallenge.test(text)||/\b(?:guarantee(?:d)? results?|prove(?:n)? (?:that )?(?:it works|results?))\b/i.test(text))return {classification:'direct_evidence_challenge',family:'outcome_evidence'};
+ if((evidenceContextTerms.test(text)||/\b(?:general|overall|broad|measurable|other organisations?|other organizations?)\b/i.test(text))&&(/\b(?:example|examples|story|stories|case|outcomes?|benefits?|trend|proof|evidence|result|results|impact|reduc|improv)\b/i.test(text)))return {classification:'unsupported_evidence_request',family:'outcome_evidence'};
+ return null;
+}
+
+export function practiceUnsupportedEvidenceMove(section:string,question:string,classification:'unsupported_evidence_request'|'direct_evidence_challenge'):{groundedAnswer:string;sellerControlMove:string}{
+ const direct=classification==='direct_evidence_challenge';
+ const limitation=direct?'I don’t have an approved case study or outcome evidence in the prepared material that supports that claim. ':'';
+ const moves:Record<string,{reframe:string;control:string}>={
+  discovery:{reframe:'What I can show you is how the approved approach relates to the pressures you’ve described.',control:'Which of those pressures would matter most to improve first?'},
+  positioning:{reframe:'What I can show you is how the support and visibility we’ve discussed could fit your organisation.',control:'Is that capability relevant enough to explore further?'},
+  objections:{reframe:'What I can show you is how the approach would work alongside what you already have.',control:'If that addressed the concern, would it be worth moving to the next step?'},
+  soft_close:{reframe:'What I can show you is how the approach could work in your environment.',control:'If that looks relevant, would a short follow-up be the sensible next step?'},
+ };
+ const selected=moves[section]||{reframe:'What I can do is relate the approved approach to the issue we’ve been discussing.',control:'Which part of that issue would be most useful to focus on next?'};
+ return {groundedAnswer:`${limitation}${selected.reframe}`,sellerControlMove:selected.control};
+}
+
+/** An exhausted evidence detour closes on a semantically related re-ask instead of starting a new bridge. */
+export function shouldClosePracticeQuestionDetour(bridge:PracticeQuestionBridge|null|undefined,buyerText:string):boolean{
+ if(!bridge||bridge.resolutionState!=='exhausted'||!bridge.fallbackDelivered||bridge.questionResolutionState!=='awaiting_buyer')return false;
+ if(bridge.evidenceFamily==='outcome_evidence')return classifyPracticeOutcomeEvidenceQuestion(buyerText)?.family==='outcome_evidence';
+ return false;
+}
+
 const stopWords=new Set(['what','when','where','which','who','whom','whose','why','how','does','did','doing','would','could','should','can','will','the','and','for','from','with','that','this','they','them','you','your','our','their','about','into','usually','specifically','exactly','kind','look','looking','like','mean','much','many','some','tell','please','company','companies','organisation','organisations','organization','organizations','every','result','results','people','team','teams','practice','recommend','recommendations','solution','solutions']);
 function normalizeToken(token:string){return token.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/ies$/,'y').replace(/s$/,'').replace(/ing$/,'').replace(/ed$/,'');}
 function tokens(value:string){return value.toLowerCase().split(/[^a-z0-9]+/).map(normalizeToken).filter(token=>token.length>2&&!stopWords.has(token));}
 function sentenceList(source:string){return source.split(/(?<=[.!?])\s+/).map(value=>value.trim()).filter(Boolean);}
-export type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_capabilities'|'product_mechanism'|'employee_proposition'|'employer_proposition'|'reporting_visibility'|'pricing'|'signup_process'|'commitment'|'comparison'|'follow_up_detail'|'general';
+export type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_capabilities'|'product_mechanism'|'employee_proposition'|'employer_proposition'|'reporting_visibility'|'pricing'|'signup_process'|'commitment'|'comparison'|'follow_up_detail'|'outcome_evidence'|'general';
 function questionIntent(question:string,context=''):PracticeQuestionIntent{
+ if(classifyPracticeOutcomeEvidenceQuestion(question))return 'outcome_evidence';
  if(/\b(?:different from|compared with|compare with|already have|currently use|existing system)\b/i.test(question))return 'comparison';
  if(/\b(?:how much|price|pricing|cost|costs)\b/i.test(question))return 'pricing';
  if(/\b(?:commit|commitment|committed|contract|12[ -]?month|twelve months?|for a year|annual term|cancellation)\b/i.test(question))return 'commitment';
@@ -146,6 +187,7 @@ function genericGapListConcepts(sentence:string):string[]{
 function questionAnswerConcepts(sentence:string):string[]{const known=gapConcepts(sentence);return known.length?known:genericGapListConcepts(sentence);}
 function exactAnswerRelevance(intent:PracticeQuestionIntent,sentence:string,question:string):number{
  const text=sentence.toLowerCase();
+ if(intent==='outcome_evidence')return /\b(?:case stud(?:y|ies)|success stor(?:y|ies)|proven example|approved evidence|measured outcomes?|reduced (?:staff )?(?:absence|burnout)|improved engagement|absence reduction|burnout reduction)\b/i.test(text)?12:0;
  if(intent==='comparison')return 0;
  if(intent==='gap_categories'){
     const concepts=questionAnswerConcepts(sentence),literalAnswer=/\b(?:gaps?|pressure areas?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction points?)\b.{0,80}\b(?:include|including|such as|for example|range from|can be|may include|are)\b/i.test(text);
@@ -248,8 +290,9 @@ export function canContinuePracticeQuestionBridge(bridge:PracticeQuestionBridge|
 export function createPracticeQuestionRecovery(bridge:PracticeQuestionBridge,question:string):PracticeQuestionBridge{
  const previousAnswer=bridge.questionResolutionState==='awaiting_buyer'?{question:bridge.latestQuestion,answer:bridge.approvedQuestionResponse,sourceType:bridge.sourceType,sourceId:bridge.sourceId,sourceIds:bridge.sourceIds,supportingText:bridge.supportingText}:null;
  const recoveryCount=(bridge.recoveryCount||0)+1;
- const recoveryWording=fallbackAnswerFor(questionIntent(question,[bridge.originalQuestion,bridge.latestQuestion].join(' ')),question,recoveryCount);
- return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,sellerControlQuestion:null,questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null};
+ const intent=questionIntent(question,[bridge.originalQuestion,bridge.latestQuestion].join(' ')),evidence=classifyPracticeOutcomeEvidenceQuestion(question),move=evidence?practiceUnsupportedEvidenceMove(bridge.suspendedScriptSection||'unknown',question,evidence.classification):null;
+ const originalFallback=fallbackAnswerFor(intent,question,recoveryCount),firstSentence=originalFallback.split(/(?<=[.!?])\s+/)[0],recoveryWording=move?.groundedAnswer||`${firstSentence} Let’s bring this back to the issue we’ve been discussing.`;
+ return {...bridge,latestQuestion:question,questionSummary:question.slice(0,240),answerHistory:previousAnswer?[...bridge.answerHistory,previousAnswer]:bridge.answerHistory,questionBridgeActive:true,resolutionState:'exhausted',fallbackDelivered:true,recoveryRequired:true,recoveryCount,approvedQuestionResponse:recoveryWording,sellerControlQuestion:move?.sellerControlMove||practiceQuestionControlMove(intent,bridge.suspendedScriptSection||'unknown',question),questionResolutionState:'awaiting_seller',sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,classification:evidence?.classification||'unsupported_question',evidenceFamily:evidence?.family||null,canonicalAction:'resume_or_advance',detourAction:'close'};
 }
 
 const coverageStopWords=new Set(['about','after','again','also','and','are','around','because','been','being','between','but','can','could','does','doing','each','from','have','here','how','into','just','more','most','much','need','needs','our','over','same','some','such','than','that','the','their','them','then','there','these','they','this','those','through','what','when','where','which','while','who','will','with','would','your','you','for','its']);
@@ -284,7 +327,7 @@ export function skipCoveredPracticeSteps(navigation:ScriptNavigation,playbook:Sa
  return {navigation:{...navigation,currentScriptSection:target.section,recommendedScriptSection:target.section,scriptStepId:target.id,currentScriptStepId:target.id,visibleScriptText:target.text,staySilent:false,currentScriptStepStatus:'not_started',currentScriptStepWasSpoken:false,currentScriptStepComplete:false,nextSequentialScriptStepId:next?.id||null,approvedScriptBranchId:null,activeAdaptiveRoute:false,adaptiveOverride:false,resumeScriptSection:null,resumeScriptStepId:null,routeReason:`Skip ${skipped.map(record=>record.stepId).join(', ')} because source-backed seller turns already covered those script objectives.`},skipped,allRemainingCovered:false};
 }
 
-export const PRACTICE_BUYER_RESPONSE_INSTRUCTIONS='When the seller asks a direct control question, answer that question first and do not introduce a new product question. Otherwise respond to what the seller said; ask at most one relevant question only when you have a genuine unresolved concern or need clarification. Do not ask a new product question after every seller turn. Usually respond in 1–2 natural sentences and 12–28 spoken words; a brief acknowledgement may be shorter. Keep the buyer realistic and do not move the script.';
+export const PRACTICE_BUYER_RESPONSE_INSTRUCTIONS='When the seller asks a direct control question, answer that question first and do not introduce a new product question. If the seller has acknowledged a limitation and reframed an unsupported request into a bounded commercial question, respond to that control question first; do not repeat or paraphrase the same request for case studies, outcomes, benefits, engagement improvements, or proof unless the seller has not addressed the concern. Otherwise respond to what the seller said; ask at most one relevant question only when you have a genuine unresolved concern or need clarification. Do not ask a new product question after every seller turn. Usually respond in 1–2 natural sentences and 12–28 spoken words; a brief acknowledgement may be shorter. Keep the buyer realistic and do not move the script.';
 
 export type PracticeBuyerOutputAssessment={accepted:boolean;validatorId:'practice_buyer_hard_contract';rejectionReason:'empty_output'|'text_too_long'|'role_mismatch'|null;wordCount:number;sentenceCount:number;hadQuestion:boolean;hadBuyerResponse:boolean;outputShapeValid:boolean;hardBoundary:string|null;retryEligible:boolean;qualityNotes:string[]};
 
@@ -325,7 +368,7 @@ export function summarizePracticeLatency(events:Array<{turnOrder?:number;latency
 }
 
 /** Selects relevant exact source text from the whole uploaded playbook/approved-claim set. */
-export function createPracticeQuestionBridge(input:{question:string;playbook:SalesPlaybook;currentScriptStepId:string;existingBridge?:PracticeQuestionBridge|null;buyerTurnId:string;previousSellerText?:string|null;knowledgePack?:PracticeKnowledgePack|null}):PracticeQuestionBridge{
+export function createPracticeQuestionBridge(input:{question:string;playbook:SalesPlaybook;currentScriptStepId:string;currentScriptSection?:string;existingBridge?:PracticeQuestionBridge|null;buyerTurnId:string;previousSellerText?:string|null;knowledgePack?:PracticeKnowledgePack|null}):PracticeQuestionBridge{
  const retrievalStartedAt=Date.now();
  const existing=input.existingBridge||null;
  const previousAnswer=existing?.questionResolutionState==='awaiting_buyer'?{question:existing.latestQuestion,answer:existing.approvedQuestionResponse,sourceType:existing.sourceType,sourceId:existing.sourceId,sourceIds:existing.sourceIds,supportingText:existing.supportingText}:null;
@@ -333,14 +376,15 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
  const bridgeTurnCount=existing?existing.bridgeTurnCount+1:1;
  const bridgeId=existing?.bridgeId||`question-bridge-${input.buyerTurnId}`;
  const suspendedScriptStepId=existing?.suspendedScriptStepId||input.currentScriptStepId;
+ const currentStep=input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId),requestedSection=input.currentScriptSection;
+ const suspendedScriptSection=existing?.suspendedScriptSection||(requestedSection&&['discovery','positioning','objections','soft_close'].includes(requestedSection)?requestedSection:currentStep?.section||'unknown');
  const base={
-  id:bridgeId,bridgeId,currentScriptStepId:suspendedScriptStepId,questionBridgeActive:true as const,suspendedScriptStepId,
+  id:bridgeId,bridgeId,currentScriptStepId:suspendedScriptStepId,questionBridgeActive:true as const,suspendedScriptStepId,suspendedScriptSection,
   originalQuestion:existing?.originalQuestion||input.question,latestQuestion:input.question,answerHistory,bridgeTurnCount,
   questionSummary:input.question.slice(0,240),questionResolutionState:'awaiting_seller' as const,recoveryRequired:false,sellerControlQuestion:null as string|null,
  };
  const intent=questionIntent(input.question,[existing?.originalQuestion||'',existing?.latestQuestion||'',input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId)?.text||'',...input.playbook.scriptSteps.map(step=>step.text),...input.playbook.approvedClaims].join(' '));
- const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:intent==='product_capabilities'?(input.knowledgePack?'I don’t want to overstate what the prepared source says. Let’s note that specific feature to verify after the conversation.':'I don’t want to guess about specific tools or features. Let’s note that detail to verify after the conversation.'):fallbackAnswerFor(intent,input.question),sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics});
- const currentStep=input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId);
+ const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>{const evidence=classifyPracticeOutcomeEvidenceQuestion(input.question),move=evidence?practiceUnsupportedEvidenceMove(suspendedScriptSection,input.question,evidence.classification):null;return {...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:move?.groundedAnswer||(intent==='product_capabilities'?(input.knowledgePack?'I don’t want to overstate what the prepared source says. Let’s note that specific feature to verify after the conversation.':'I don’t want to guess about specific tools or features. Let’s note that detail to verify after the conversation.'):fallbackAnswerFor(intent,input.question)),sellerControlQuestion:move?.sellerControlMove||null,sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics,classification:evidence?.classification||'unsupported_question',evidenceFamily:evidence?.family||null,canonicalAction:'resume_or_advance',detourAction:'close'};};
  const sources=[
   ...input.playbook.scriptSteps.filter(step=>step.section!=='approved_claims').map(step=>({id:step.id,section:step.section,text:step.text,sourceType:'playbook_step' as const,priority:0})),
   ...input.playbook.approvedClaims.map((text,index)=>({id:`claim-${index+1}`,section:'approved_claims',text,sourceType:'approved_claim' as const,priority:0})),
@@ -406,7 +450,7 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
  if(!selected){const relevantCandidates=evaluated.filter(candidate=>candidate.exactAnswerScore>0||candidate.relevantConceptScore>0);diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason=diagnostics.fallbackReason|| (existing?.resolutionState==='exhausted'?'previous_bridge_exhausted_no_nested_bridge':bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'bridge_turn_limit_reached':relevantCandidates.length?'all_relevant_candidates_rejected_by_repetition_or_quality_gate':candidates.length?'no_direct_or_relevant_approved_concept':'no_approved_candidates');if(diagnostics.knowledgeLookupAttempted)diagnostics.knowledgeFallbackReason=knowledgeCandidates.length?'no_supported_knowledge_answer':'prepared_pack_has_no_relevant_items';diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);return safeFallback('exhausted',diagnostics);}
  const supportingText=selected.candidate.text,sourceType=selected.candidate.sourceType;let sellerWording=selected.answer;
  if(sourceType==='prepared_knowledge'){diagnostics.selectedKnowledgeIds=[...new Set(selected.sourceIds.map(id=>id.replace(/^knowledge:/,'')))];diagnostics.knowledgeAnswerPath=diagnostics.knowledgeAnswerPath||diagnostics.selectedPath||'direct_prepared_knowledge';const selectedFacts=selected.sourceIds.map(id=>sourceById.get(id)).filter((source):source is NonNullable<typeof source>=>!!source&&source.sourceType==='prepared_knowledge').map(source=>({section:source.section,text:source.text,...('category' in source?{category:source.category}:{})}));sellerWording=concisePreparedKnowledgeAnswer(intent,selectedFacts)||selected.answer;}diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);
-  return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:sellerWording,sellerControlQuestion:practiceQuestionControlMove(intent,currentStep?.section||'unknown',input.question),sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
+  return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:sellerWording,sellerControlQuestion:practiceQuestionControlMove(intent,currentStep?.section||'unknown',input.question),sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics,classification:'supported_question',evidenceFamily:null,canonicalAction:'resume_or_advance',detourAction:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'close':'continue'};
 }
 
 export function practiceTerminalOutcome(classification:PracticeBuyerClassification):PracticeTerminalOutcome|null{
