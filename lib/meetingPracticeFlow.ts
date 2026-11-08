@@ -286,10 +286,22 @@ export function skipCoveredPracticeSteps(navigation:ScriptNavigation,playbook:Sa
 
 export const PRACTICE_BUYER_RESPONSE_INSTRUCTIONS='When the seller asks a direct control question, answer that question first and do not introduce a new product question. Otherwise respond to what the seller said; ask at most one relevant question only when you have a genuine unresolved concern or need clarification. Do not ask a new product question after every seller turn. Usually respond in 1–2 natural sentences and 12–28 spoken words; a brief acknowledgement may be shorter. Keep the buyer realistic and do not move the script.';
 
+export type PracticeBuyerOutputAssessment={accepted:boolean;validatorId:'practice_buyer_hard_contract';rejectionReason:'empty_output'|'text_too_long'|'role_mismatch'|null;wordCount:number;sentenceCount:number;hadQuestion:boolean;hadBuyerResponse:boolean;outputShapeValid:boolean;hardBoundary:string|null;retryEligible:boolean;qualityNotes:string[]};
+
+/** Structural/safety contract only. Conversation length and style are scored, never used to discard a usable buyer turn. */
+export function assessPracticeBuyerOutput(text:unknown,explicitScenarioNeed=false):PracticeBuyerOutputAssessment{
+ const value=typeof text==='string'?text.trim():'',wordCount=value?value.split(/\s+/).filter(Boolean).length:0,sentenceCount=value?value.split(/(?<=[.!?])\s+/).filter(Boolean).length:0,hadQuestion=value.includes('?'),roleMismatch=/^(?:seller|assistant|system|root|coach)\s*[:\-]/i.test(value);
+ let rejectionReason:PracticeBuyerOutputAssessment['rejectionReason']=null;
+ if(!value)rejectionReason='empty_output';else if(value.length>1200)rejectionReason='text_too_long';else if(roleMismatch)rejectionReason='role_mismatch';
+ const qualityNotes:string[]=[];
+ if(!explicitScenarioNeed&&(wordCount<5||wordCount>28))qualityNotes.push('word_count_outside_target');
+ if(sentenceCount>2)qualityNotes.push('sentence_count_above_target');
+ if((value.match(/\?/g)||[]).length>1)qualityNotes.push('multiple_questions');
+ return {accepted:rejectionReason===null,validatorId:'practice_buyer_hard_contract',rejectionReason,wordCount,sentenceCount,hadQuestion,hadBuyerResponse:!!value&&!roleMismatch,outputShapeValid:typeof text==='string',hardBoundary:rejectionReason,retryEligible:rejectionReason!==null,qualityNotes};
+}
+
 export function practiceBuyerResponseWithinDefaultBudget(text:string,explicitScenarioNeed=false){
- const value=text.trim(),sentences=value.split(/(?<=[.!?])\s+/).filter(Boolean);
- const wordCount=value.split(/\s+/).filter(Boolean).length;
- return !!value&&value.length<=(explicitScenarioNeed?1200:300)&&sentences.length<=(explicitScenarioNeed?6:2)&&(explicitScenarioNeed||wordCount<=28);
+ return assessPracticeBuyerOutput(text,explicitScenarioNeed).accepted;
 }
 
 export function summarizePracticeLatency(events:Array<{turnOrder?:number;latencyStage?:string;at?:number}>){

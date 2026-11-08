@@ -327,14 +327,17 @@ test('recovery always supplies self-sufficient spoken wording and a normal buyer
  assert.equal(flow.classifyPracticeBuyerTurn('I understand. We currently use a quarterly survey.'),'normal_response','a normal reply leaves the unsupported loop and can resume canonical navigation');
 });
 
-test('synthetic buyer text is concise by default; longer output needs an explicit scenario need',()=>{
+test('buyer length and style are soft targets while empty, oversized and role-labelled output remain hard rejects',()=>{
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. What do employees find most useful?'),true);
- assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Our managers also check in. I am unsure what else is available. What would you recommend?'),false);
- assert.equal(flow.practiceBuyerResponseWithinDefaultBudget(Array(29).fill('word').join(' ')),false,'default buyer speech is capped at 28 words');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Our managers also check in. I am unsure what else is available. What would you recommend?'),true,'sentence and question style remain preferences');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget(Array(31).fill('word').join(' ')),true,'the spoken word target is not a hard gate');
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We use annual surveys. Would more continuous insight help?'),true,'short buyer turns remain natural and valid');
- assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(600)),false);
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(600)),true,'usable longer conversational output is accepted');
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('We have several teams and different support needs. Our current process combines surveys and manager conversations. We need a clear view across those sources. Could you show how the evidence is organised?',true),true,'an explicit scenario need permits a bounded longer reply');
  assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('x'.repeat(1300),true),false,'even an explicit scenario need remains bounded');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget(''),false,'empty output remains a hard rejection');
+ assert.equal(flow.practiceBuyerResponseWithinDefaultBudget('Seller: I would recommend signing up.'),false,'a role-labelled seller response remains a hard rejection');
+ const soft=flow.assessPracticeBuyerOutput(Array(31).fill('word').join(' '));assert.equal(soft.qualityNotes.join(','),'word_count_outside_target');assert.equal(soft.hardBoundary,null);
 });
 
 test('buyer prompt instructs Alex to answer the seller control move instead of asking a fresh product question',()=>{
