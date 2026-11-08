@@ -54,6 +54,19 @@ test('the required Root features question uses source-backed multi-item knowledg
  assert.deepEqual(bridge.sourceIds,bridge.retrievalDiagnostics.selectedSourceIds);assert.equal(bridge.retrievalDiagnostics.answerQuality.passed,true);assert.equal(bridge.retrievalDiagnostics.knowledgeSnapshotVersion,pack.snapshotVersion);
 });
 
+test('continuous-feedback, daily-support, and specific-tools questions retrieve the pinned source without moving the script cursor',()=>{
+ const pack=knowledge.pinPracticeKnowledgePack([knowledge.preparePracticeKnowledgeSource({text:rootText,fileName:'root-health-workplace-membership-source.txt'})]);
+ const cases=[
+  ['How does Root Health specifically gather continuous feedback from employees?',/anonymous evidence base/i,/repeated check-ins/i],
+  ['Can you explain a bit more about how that daily support is implemented?',/participation grows/i,/evidence supports/i],
+  ['What specific tools or features do you offer?',/Root Intelligence/i,/Organisation Insights/i],
+ ];
+ for(const [question,first,second] of cases){
+  const bridge=flow.createPracticeQuestionBridge({question,playbook,currentScriptStepId:'discovery-1',buyerTurnId:`buyer-${question.length}`,knowledgePack:pack});
+  assert.equal(bridge.sourceType,'prepared_knowledge',question);assert.equal(bridge.retrievalDiagnostics.knowledgeLookupAttempted,true,question);assert.ok(bridge.retrievalDiagnostics.knowledgeCandidateCount>0,question);assert.ok(bridge.retrievalDiagnostics.selectedKnowledgeIds.length>0,question);assert.equal(bridge.retrievalDiagnostics.knowledgeFallbackReason,null,question);assert.match(bridge.approvedQuestionResponse,first,question);assert.match(bridge.approvedQuestionResponse,second,question);assert.ok(bridge.approvedQuestionResponse.trim().split(/\s+/).length<=45,question);assert.equal(bridge.currentScriptStepId,'discovery-1',question);assert.equal(bridge.suspendedScriptStepId,'discovery-1',question);assert.equal(bridge.retrievalDiagnostics.knowledgeSnapshotVersion,pack.snapshotVersion,question);
+ }
+});
+
 test('a directly relevant uploaded-playbook answer outranks prepared knowledge',()=>{
  const custom=adaptive.parseSalesPlaybook('# Custom\n## Opening\nStart clearly.\n## Discovery\nOur features include evidence reporting and workforce insights, giving organisations a clearer view of support needs.');
  const pack=knowledge.pinPracticeKnowledgePack([knowledge.preparePracticeKnowledgeSource({text:rootText,fileName:'source.txt'})]);
