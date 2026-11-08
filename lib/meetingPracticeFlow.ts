@@ -1,7 +1,8 @@
 import type {SalesPlaybook,ScriptNavigation} from './meetingAdaptiveCoach';
+import type {PracticeKnowledgePack} from './meetingPracticeKnowledge';
 
 export type PracticeBuyerClassification='normal_response'|'objection'|'direct_question'|'clear_acceptance'|'not_ready'|'clear_rejection';
-export type PracticeQuestionSource='playbook_step'|'approved_claim'|'safe_fallback';
+export type PracticeQuestionSource='playbook_step'|'approved_claim'|'prepared_knowledge'|'safe_fallback';
 export type PracticeQuestionResolution='awaiting_seller'|'awaiting_buyer';
 export type PracticeQuestionBridgeResolution='active'|'exhausted';
 export type PracticeQuestionAnswerHistoryEntry={
@@ -13,7 +14,7 @@ export type PracticeQuestionAnswerHistoryEntry={
  supportingText:string|null;
 };
 export type PracticeQuestionCandidateScore={sourceIds:string[];exactAnswerScore:number;relevantConceptScore:number;concepts:string[];rejectionReasons:string[]};
-export type PracticeQuestionRetrievalDiagnostics={intent:string;candidateCount:number;candidateSourceIds:string[];candidateScores:PracticeQuestionCandidateScore[];selectedSourceIds:string[];selectedPath:'exact_approved_answer'|'relevant_approved_concept'|'multi_source_composition'|'safe_fallback'|null;answerQuality:{answersQuestion:boolean;addsUsefulInformation:boolean;sourceBacked:boolean;distinctFromRecentWording:boolean;passed:boolean}|null;fallbackReason:string|null};
+export type PracticeQuestionRetrievalDiagnostics={intent:string;candidateCount:number;candidateSourceIds:string[];candidateScores:PracticeQuestionCandidateScore[];selectedSourceIds:string[];selectedPath:'exact_approved_answer'|'relevant_approved_concept'|'multi_source_composition'|'prepared_knowledge'|'safe_fallback'|null;answerQuality:{answersQuestion:boolean;addsUsefulInformation:boolean;sourceBacked:boolean;distinctFromRecentWording:boolean;passed:boolean}|null;fallbackReason:string|null;knowledgeLookupAttempted?:boolean;knowledgeCandidateCount?:number;selectedKnowledgeIds?:string[];knowledgeAnswerPath?:string|null;knowledgeFallbackReason?:string|null;knowledgeSnapshotVersion?:string|null;knowledgeLookupDurationMs?:number};
 export type PracticeQuestionBridge={
  id:string;
  bridgeId:string;
@@ -73,10 +74,19 @@ const stopWords=new Set(['what','when','where','which','who','whom','whose','why
 function normalizeToken(token:string){return token.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/ies$/,'y').replace(/s$/,'').replace(/ing$/,'').replace(/ed$/,'');}
 function tokens(value:string){return value.toLowerCase().split(/[^a-z0-9]+/).map(normalizeToken).filter(token=>token.length>2&&!stopWords.has(token));}
 function sentenceList(source:string){return source.split(/(?<=[.!?])\s+/).map(value=>value.trim()).filter(Boolean);}
-type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_mechanism'|'follow_up_detail'|'general';
+type PracticeQuestionIntent='gap_categories'|'solution_capability'|'product_capabilities'|'product_mechanism'|'employee_proposition'|'employer_proposition'|'reporting_visibility'|'pricing'|'signup_process'|'commitment'|'comparison'|'follow_up_detail'|'general';
 function questionIntent(question:string,context=''):PracticeQuestionIntent{
+ if(/\b(?:different from|compared with|compare with|already have|currently use|existing system)\b/i.test(question))return 'comparison';
+ if(/\b(?:how much|price|pricing|cost|costs)\b/i.test(question))return 'pricing';
+ if(/\b(?:commit|commitment|committed|contract|12[ -]?month|twelve months?|for a year|annual term|cancellation)\b/i.test(question))return 'commitment';
+ if(/\b(?:sign up|signup|join|membership application|apply for membership|onboard)\b/i.test(question))return 'signup_process';
+ if(/\b(?:what information|what data|what insights?)\b/i.test(question)&&/\b(?:organisation|organization|employer|hr|leadership)\b/i.test(question)&&/\b(?:see|receive|get|access)\b/i.test(question))return 'reporting_visibility';
+ if(/\b(?:employee|employees|staff|workforce)\b/i.test(question)&&/\b(?:get|receive|included|access|experience|provided)\b/i.test(question))return 'employee_proposition';
+ if(/\b(?:employer|organisation|organization|leadership|hr)\b/i.test(question)&&/\b(?:get|receive|included|provide|gain|benefit)\b/i.test(question))return 'employer_proposition';
+ if(/\b(features?|tools?|capabilit(?:y|ies)|offer)\b/i.test(question)&&( /\boffer\b/i.test(question)||/\b(clearer view|clearer picture|organisations?|organizations?|workforce|support)\b/i.test(question)))return 'product_capabilities';
   if(/\b(solutions?|recommend(?:ation|ations)?|interventions?|treatments?|prescribe|address|resolve|deal with)\b/i.test(question))return 'solution_capability';
  if(/\b(follow[ -]?up|next step|next meeting|conversation|appointment)\b/i.test(question))return 'follow_up_detail';
+ if(/\bhow\b/i.test(question)&&/\b(?:work|works|operate|operates|actually work)\b/i.test(question))return 'product_mechanism';
  if(/\b(how does|how do|how would|how exactly|what does .* do|what is .* designed to|how .* work)\b/i.test(question))return 'product_mechanism';
   const gapTopic=/\b(gaps?|pressure|bottlenecks?|absence|burnout|stress|manager strain|engagement|wellbeing issues?|well-being issues?|underused support|existing support)\b/i.test(question);
   const asksForAreas=/\b(?:what|which)\s+(?:kinds?|types?|sorts?|areas?|examples?)\b|\bwhat exactly (?:are you )?looking for\b|\bwhere (?:do you|would you|does it) (?:usually )?(?:see|find|show)\b/i.test(question);
@@ -103,6 +113,7 @@ function genericGapListConcepts(sentence:string):string[]{
 function questionAnswerConcepts(sentence:string):string[]{const known=gapConcepts(sentence);return known.length?known:genericGapListConcepts(sentence);}
 function exactAnswerRelevance(intent:PracticeQuestionIntent,sentence:string,question:string):number{
  const text=sentence.toLowerCase();
+ if(intent==='comparison')return 0;
  if(intent==='gap_categories'){
     const concepts=questionAnswerConcepts(sentence),literalAnswer=/\b(?:gaps?|pressure areas?|issues?|challenges?|problems?|bottlenecks?|barriers?|friction points?)\b.{0,80}\b(?:include|including|such as|for example|range from|can be|may include|are)\b/i.test(text);
    return literalAnswer&&concepts.length>=2?8+concepts.length:0;
@@ -112,7 +123,23 @@ function exactAnswerRelevance(intent:PracticeQuestionIntent,sentence:string,ques
   const count=capabilitySignals.filter(pattern=>pattern.test(text)).length;
   return count>=4?count+4:0;
  }
+ if(intent==='product_capabilities'){
+  const protectedTerms=[...(question.match(/\bMicrosoft Teams\b/ig)||[]),...(question.match(/\b(?:integrations?|guarantees?|guaranteed results?)\b/ig)||[]),...(question.match(/\b\d+(?:\.\d+)?\s*%/g)||[])];if(protectedTerms.some(term=>!text.toLowerCase().includes(term.toLowerCase())))return 0;
+  const capabilitySignals=[/\b(features?|reporting_data)\b/i,/\b(root intelligence|organisation insights|organization insights|ask root|executive reviews)\b/i, /\b(evidence|insights|reporting|measures|participation|workforce direction|clearer picture|clearer view)\b/i, /\b(organisation|organization|leadership|hr|employee|workforce)\b/i];
+  const count=capabilitySignals.filter(pattern=>pattern.test(text)).length;
+  return count>=3?count+5:0;
+ }
+ if(intent==='employee_proposition')return /\b(every employee receives|personal root experience|assessments|check-ins|mind|journal|practical interventions|voice coach|employees join privately)\b/i.test(text)?10:0;
+ if(intent==='employer_proposition'){
+  const employerValue=[/\b(leadership|organisation|organization|employer|hr|board|workforce)\b/i,/\b(receives|support|clearer view|insights?|reporting|decisions|evidence|recommendations|question(?:s)? root|test assumptions)\b/i];
+  const count=employerValue.filter(pattern=>pattern.test(text)).length;return count===2?8:0;
+ }
+ if(intent==='reporting_visibility')return /\b(anonymous participation|evidence depth|workforce direction|business context|confidence signals|without seeing individual employee data|board-ready organisational reporting)\b/i.test(text)?10:0;
+ if(intent==='pricing')return /(?:£\s?\d[\d,]*(?:\.\d{2})?|bespoke)/i.test(text)&&/\b(?:per month|monthly|membership begins from)\b/i.test(text)?10:0;
+ if(intent==='signup_process')return /\b(?:complete the direct membership application|confirm membership|approved application|authorised administrator|secure invitation)\b/i.test(text)?9:0;
+ if(intent==='commitment')return /\b(?:12-month|12 month|twelve.month|for a year|normally agreed)\b/i.test(text)?10:0;
  if(intent==='product_mechanism'){
+  if(/from application to organisation learning|organisation establishes the membership|employees then join root privately|workforce reach, baseline depth|become more useful as participation, continuity/i.test(text))return 9;
   const mechanismSignals=[/\b(how it works|designed to|helps? .* understand|gives? .* view|gives? employees?|day to day|continuously)\b/i,/\b(show|walk through|understand|identify|support|survey|day to day|continuously)\b/i];
   return mechanismSignals.filter(pattern=>pattern.test(text)).length===2?7:0;
  }
@@ -148,10 +175,30 @@ function fallbackAnswerFor(intent:PracticeQuestionIntent,question:string,variant
   return [`I don’t have an approved example of ${subject} to give you. Is there a particular area you want me to clarify?`,`I can’t support another example of ${subject} from the playbook. Which part should I clarify?`,`I don’t have another approved example of ${subject}. What specific area matters most to you?`][Math.min(variant,2)];
  }
  if(intent==='solution_capability')return 'I don’t have an approved recommendation for that. Which part of the approach would you like me to clarify?';
+ if(intent==='comparison')return 'I can explain what the prepared source describes, but I don’t know what you already use, so I can’t make a grounded comparison. What would you like me to compare it with?';
+ if(intent==='pricing')return 'I don’t have a source-backed price for that specific situation. What workforce size or membership option should I clarify?';
+ if(intent==='signup_process')return 'I don’t have a source-backed signup step for that detail. What part of starting membership should I clarify?';
+ if(intent==='commitment')return 'I don’t have a source-backed commitment term for that question. What term should I check?';
+ if(intent==='product_capabilities')return 'I don’t want to overstate the available material. I can explain the features described in the prepared source, or note the specific detail that still needs checking.';
  if(intent==='product_mechanism')return 'I don’t have an approved explanation for that detail. Which part of how it works should I clarify?';
  if(intent==='follow_up_detail')return 'I don’t have an approved detail about that next step. What part of the follow-up should I clarify?';
  return 'I don’t have an approved answer to that specific question. What detail should I clarify?';
 }
+type PreparedKnowledgeFact={section:string;text:string;category?:string};
+/** Turn selected source facts into concise seller wording while keeping the full evidence set attached to the bridge. */
+function concisePreparedKnowledgeAnswer(intent:PracticeQuestionIntent,facts:PreparedKnowledgeFact[]):string|null{
+ const all=facts.map(fact=>`${fact.section} ${fact.text}`).join(' ').toLowerCase();
+ if(intent==='product_capabilities'&&/organisation insights/i.test(all)&&/ask root/i.test(all)&&/root intelligence/i.test(all))return 'Root combines private employee support with organisational insight. HR sees anonymous workforce signals, while leaders can use Root Intelligence, Organisation Insights, Ask Root and executive reviews.';
+ if(intent==='employee_proposition'&&/employee wellbeing platform/i.test(facts.map(fact=>fact.section).join(' ')))return 'Employees receive assessments, check-ins, Mind, Journal, practical interventions and Voice Coach in Root’s personal wellbeing experience.';
+ if(intent==='employer_proposition'&&/anonymous participation/i.test(all)&&/private support/i.test(all))return 'Employers get private employee support alongside organisational insight. HR sees anonymous workforce signals, and leadership can question findings and review board-ready reporting.';
+ if(intent==='product_mechanism'&&/employees then join root privately/i.test(all)&&/workforce reach, baseline depth/i.test(all))return 'Employees join Root privately to build an anonymous evidence base. Root tracks workforce reach, baseline depth and repeated check-ins alongside organisational context, developing clearer insight as participation grows.';
+ if(intent==='pricing'&&/£\s?695/i.test(all)&&/12-month basis/i.test(all))return 'Pricing starts at £695 per month for up to 50 employees and scales with workforce size; prices exclude VAT. Standard membership is normally 12 months, billed monthly, with enterprise arrangements handled directly.';
+ if(intent==='signup_process'&&/direct membership application/i.test(all)&&/secure invitation/i.test(all))return 'Apply with the organisation, workforce size and authorised administrator. Once approved, standard membership connects to secure billing; the administrator is invited to set up Root and its first Organisation Learning Review.';
+ if(intent==='commitment'&&/12-month basis/i.test(all))return 'Standard membership is normally agreed for 12 months and billed monthly. Arrangements for organisations with more than 1,000 employees are handled directly with Root.';
+ if(intent==='reporting_visibility'&&/without seeing individual employee data/i.test(all))return 'HR sees anonymous participation, evidence depth, workforce direction, business context and confidence signals; individual employee data is not visible to HR.';
+ return null;
+}
+
 export const MAX_PRACTICE_QUESTION_BRIDGE_TURNS=3;
 
 /** Mark that the seller has delivered the current bridge answer; an exhausted fallback must not loop. */
@@ -231,7 +278,8 @@ export function summarizePracticeLatency(events:Array<{turnOrder?:number;latency
 }
 
 /** Selects relevant exact source text from the whole uploaded playbook/approved-claim set. */
-export function createPracticeQuestionBridge(input:{question:string;playbook:SalesPlaybook;currentScriptStepId:string;existingBridge?:PracticeQuestionBridge|null;buyerTurnId:string;previousSellerText?:string|null}):PracticeQuestionBridge{
+export function createPracticeQuestionBridge(input:{question:string;playbook:SalesPlaybook;currentScriptStepId:string;existingBridge?:PracticeQuestionBridge|null;buyerTurnId:string;previousSellerText?:string|null;knowledgePack?:PracticeKnowledgePack|null}):PracticeQuestionBridge{
+ const retrievalStartedAt=Date.now();
  const existing=input.existingBridge||null;
  const previousAnswer=existing?.questionResolutionState==='awaiting_buyer'?{question:existing.latestQuestion,answer:existing.approvedQuestionResponse,sourceType:existing.sourceType,sourceId:existing.sourceId,sourceIds:existing.sourceIds,supportingText:existing.supportingText}:null;
  const answerHistory=previousAnswer?[...(existing?.answerHistory||[]),previousAnswer]:[...(existing?.answerHistory||[])];
@@ -244,29 +292,30 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
   questionSummary:input.question.slice(0,240),questionResolutionState:'awaiting_seller' as const,recoveryRequired:false,
  };
  const intent=questionIntent(input.question,[existing?.originalQuestion||'',existing?.latestQuestion||'',input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId)?.text||'',...input.playbook.scriptSteps.map(step=>step.text),...input.playbook.approvedClaims].join(' '));
- const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:fallbackAnswerFor(intent,input.question),sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics});
+ const safeFallback=(resolutionState:PracticeQuestionBridgeResolution='exhausted',retrievalDiagnostics:PracticeQuestionRetrievalDiagnostics):PracticeQuestionBridge=>({...base,resolutionState,fallbackDelivered:false,approvedQuestionResponse:intent==='product_capabilities'?(input.knowledgePack?'I don’t want to overstate what the prepared source says. Let’s note that specific feature to verify after the conversation.':'I don’t want to guess about specific tools or features. Let’s note that detail to verify after the conversation.'):fallbackAnswerFor(intent,input.question),sourceType:'safe_fallback',sourceId:null,sourceIds:[],supportingText:null,retrievalDiagnostics});
  const currentStep=input.playbook.scriptSteps.find(step=>step.id===suspendedScriptStepId);
  const sources=[
-  ...input.playbook.scriptSteps.filter(step=>step.section!=='approved_claims').map(step=>({id:step.id,section:step.section,text:step.text,sourceType:'playbook_step' as const})),
-  ...input.playbook.approvedClaims.map((text,index)=>({id:`claim-${index+1}`,section:'approved_claims',text,sourceType:'approved_claim' as const})),
+  ...input.playbook.scriptSteps.filter(step=>step.section!=='approved_claims').map(step=>({id:step.id,section:step.section,text:step.text,sourceType:'playbook_step' as const,priority:0})),
+  ...input.playbook.approvedClaims.map((text,index)=>({id:`claim-${index+1}`,section:'approved_claims',text,sourceType:'approved_claim' as const,priority:0})),
+  ...(input.knowledgePack?.items||[]).map(item=>({id:`knowledge:${item.knowledgeId}`,section:item.sourceSection,text:item.statement,sourceType:'prepared_knowledge' as const,priority:1,category:item.category})),
  ];
  const groupedSources=new Map<string,typeof sources>();
  for(const source of sources){const group=groupedSources.get(`${source.sourceType}:${source.section}`)||[];group.push(source);groupedSources.set(`${source.sourceType}:${source.section}`,group);}
-  const candidates:{id:string;sourceIds:string[];text:string;sourceType:'playbook_step'|'approved_claim'}[]=[];
+  const candidates:{id:string;sourceIds:string[];text:string;sourceType:'playbook_step'|'approved_claim'|'prepared_knowledge';priority:number;section:string;category?:string}[]=[];
  for(const group of groupedSources.values()){
-  const fragments=group.flatMap(source=>sentenceList(source.text).map(text=>({id:source.id,text,sourceType:source.sourceType})));
+  const fragments=group.flatMap(source=>(source.sourceType==='prepared_knowledge'?[source.text]:sentenceList(source.text)).map(text=>({id:source.id,text,sourceType:source.sourceType,priority:source.priority,section:source.section,...('category' in source?{category:source.category}:{})})));
   for(let index=0;index<fragments.length;index++){
-   const first=fragments[index];candidates.push({id:first.id,sourceIds:[first.id],text:first.text,sourceType:first.sourceType});
+   const first=fragments[index];candidates.push({id:first.id,sourceIds:[first.id],text:first.text,sourceType:first.sourceType,priority:first.priority,section:first.section,...(first.category?{category:first.category}:{})});
    const second=fragments[index+1];
-   if(second&&first.sourceType===second.sourceType&&first.text!==second.text&&`${first.text} ${second.text}`.length<=480)candidates.push({id:first.id,sourceIds:[first.id,second.id],text:`${first.text} ${second.text}`,sourceType:first.sourceType});
+   if(second&&first.sourceType!=='prepared_knowledge'&&first.sourceType===second.sourceType&&first.priority===second.priority&&first.text!==second.text&&`${first.text} ${second.text}`.length<=480)candidates.push({id:first.id,sourceIds:[first.id,second.id],text:`${first.text} ${second.text}`,sourceType:first.sourceType,priority:first.priority,section:first.section,...(first.category?{category:first.category}:{})});
   }
  }
  const priorAnswers=answerHistory.map(entry=>entry.answer);
  const references=[{kind:'previous_seller_wording',text:input.previousSellerText||''},{kind:'current_step_wording',text:currentStep?.text||''},...priorAnswers.map(text=>({kind:'previous_bridge_answer',text}))].filter(item=>item.text);
- const diagnostics:PracticeQuestionRetrievalDiagnostics={intent,candidateCount:candidates.length,candidateSourceIds:[...new Set(candidates.flatMap(candidate=>candidate.sourceIds))],candidateScores:[],selectedSourceIds:[],selectedPath:null,answerQuality:null,fallbackReason:null};
-  const evaluated=candidates.map(candidate=>{const concepts=questionAnswerConcepts(candidate.text),exactAnswerScore=exactAnswerRelevance(intent,candidate.text,input.question),relevantConceptScore=relevantConceptRelevance(intent,candidate.text),rejectionReasons:string[]=[];for(const reference of references)if(repetitionSimilarity(candidate.text,reference.text)>=0.68)rejectionReasons.push(reference.kind);return {...candidate,concepts,exactAnswerScore,relevantConceptScore,rejectionReasons};});
+ const knowledgeCandidates=candidates.filter(candidate=>candidate.sourceType==='prepared_knowledge'),diagnostics:PracticeQuestionRetrievalDiagnostics={intent,candidateCount:candidates.length,candidateSourceIds:[...new Set(candidates.flatMap(candidate=>candidate.sourceIds))],candidateScores:[],selectedSourceIds:[],selectedPath:null,answerQuality:null,fallbackReason:null,knowledgeLookupAttempted:!!input.knowledgePack,knowledgeCandidateCount:knowledgeCandidates.length,selectedKnowledgeIds:[],knowledgeAnswerPath:null,knowledgeFallbackReason:null,knowledgeSnapshotVersion:input.knowledgePack?.snapshotVersion||null};
+  const evaluated=candidates.map(candidate=>{const concepts=questionAnswerConcepts(candidate.text),scoringText=`${candidate.section} ${candidate.category||''} ${candidate.text}`,exactAnswerScore=exactAnswerRelevance(intent,scoringText,input.question),relevantConceptScore=relevantConceptRelevance(intent,scoringText),rejectionReasons:string[]=[];for(const reference of references)if(repetitionSimilarity(candidate.text,reference.text)>=0.68)rejectionReasons.push(reference.kind);return {...candidate,concepts,exactAnswerScore,relevantConceptScore,rejectionReasons};});
  diagnostics.candidateScores=evaluated.map(candidate=>({sourceIds:candidate.sourceIds,exactAnswerScore:candidate.exactAnswerScore,relevantConceptScore:candidate.relevantConceptScore,concepts:candidate.concepts,rejectionReasons:[...candidate.rejectionReasons,...(candidate.exactAnswerScore===0&&candidate.relevantConceptScore===0?[candidate.concepts.length?'not_enough_relevant_concepts_for_single_source_answer':'no_relevant_approved_concept_match']:[])]}));
- if(existing?.resolutionState==='exhausted'&&existing.fallbackDelivered){diagnostics.candidateScores=diagnostics.candidateScores.map(candidate=>({...candidate,rejectionReasons:[...candidate.rejectionReasons,'previous_bridge_exhausted_no_nested_bridge']}));diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason='previous_bridge_exhausted_no_nested_bridge';return {...safeFallback('exhausted',diagnostics),fallbackDelivered:true};}
+ if(existing?.resolutionState==='exhausted'&&existing.fallbackDelivered){diagnostics.candidateScores=diagnostics.candidateScores.map(candidate=>({...candidate,rejectionReasons:[...candidate.rejectionReasons,'previous_bridge_exhausted_no_nested_bridge']}));diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason='previous_bridge_exhausted_no_nested_bridge';diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);return {...safeFallback('exhausted',diagnostics),fallbackDelivered:true};}
  const sourceById=new Map(sources.map(source=>[source.id,source]));
  const composeGapAnswer=(concepts:string[])=>`Things like ${naturalList(concepts)} — areas where the pressure can show up.`;
  const validateAnswer=(answer:string,sourceIds:string[],supportedConcepts:string[])=>{
@@ -275,19 +324,42 @@ export function createPracticeQuestionBridge(input:{question:string;playbook:Sal
  };
  const eligible=evaluated.filter(candidate=>candidate.rejectionReasons.length===0);
  const trySelect=(items:typeof eligible,path:PracticeQuestionRetrievalDiagnostics['selectedPath'],answerFor:(candidate:typeof eligible[number])=>{answer:string;concepts:string[]}|null)=>{
-  const ordered=[...items].sort((a,b)=>b.exactAnswerScore-a.exactAnswerScore||b.relevantConceptScore-a.relevantConceptScore);
+  const ordered=[...items].sort((a,b)=>a.priority-b.priority||b.exactAnswerScore-a.exactAnswerScore||b.relevantConceptScore-a.relevantConceptScore);
   for(const candidate of ordered){const composed=answerFor(candidate);if(!composed)continue;const sourceIds=[...new Set(candidate.sourceIds)],quality=validateAnswer(composed.answer,sourceIds,composed.concepts);diagnostics.answerQuality=quality;if(!quality.passed){candidate.rejectionReasons.push(...Object.entries(quality).filter(([,ok])=>!ok).map(([key])=>`answer_quality_${key}_failed`));const score=diagnostics.candidateScores.find(row=>row.sourceIds.join('|')===candidate.sourceIds.join('|')&&row.exactAnswerScore===candidate.exactAnswerScore&&row.relevantConceptScore===candidate.relevantConceptScore);if(score)score.rejectionReasons=[...candidate.rejectionReasons];continue;}diagnostics.selectedPath=path;diagnostics.selectedSourceIds=sourceIds;return {candidate,answer:composed.answer,sourceIds,quality};}
   return null;
  };
- let selected=trySelect(eligible.filter(candidate=>candidate.exactAnswerScore>0),'exact_approved_answer',candidate=>({answer:candidate.text,concepts:candidate.concepts}));
- if(!selected&&intent==='gap_categories')selected=trySelect(eligible.filter(candidate=>candidate.relevantConceptScore>0),'relevant_approved_concept',candidate=>{const concepts=candidate.concepts;if(concepts.length<2)return null;return {answer:composeGapAnswer(concepts),concepts};});
+ const tryKnowledgeComposition=(items:typeof eligible,path:PracticeQuestionRetrievalDiagnostics['selectedPath']='multi_source_composition',limit=4,includeSectionLabels=false)=>{
+  const chosen=items.filter(candidate=>candidate.sourceType==='prepared_knowledge').filter((candidate,index,list)=>candidate.sourceIds.some(id=>!list.slice(0,index).some(previous=>previous.sourceIds.includes(id)))).slice(0,limit);
+  if(chosen.length<2)return false;
+  const answer=chosen.map(candidate=>includeSectionLabels?`${candidate.section}: ${candidate.text}`:candidate.text).join(' '),sourceIds=[...new Set(chosen.flatMap(candidate=>candidate.sourceIds))],concepts:string[]=[],quality=validateAnswer(answer,sourceIds,concepts);diagnostics.answerQuality=quality;
+  if(!quality.passed){diagnostics.knowledgeFallbackReason='composition_failed_quality_gate';return false;}
+  diagnostics.selectedPath=path;diagnostics.selectedSourceIds=sourceIds;diagnostics.selectedKnowledgeIds=sourceIds.map(id=>id.replace(/^knowledge:/,''));diagnostics.knowledgeAnswerPath=path;
+  selected={candidate:{...chosen[0],sourceIds,text:answer,concepts,exactAnswerScore:chosen.reduce((sum,item)=>sum+item.exactAnswerScore,0),relevantConceptScore:0,rejectionReasons:[]},answer,sourceIds,quality};return true;
+ };
+ let selected=trySelect(eligible.filter(candidate=>candidate.priority===0&&candidate.exactAnswerScore>0),'exact_approved_answer',candidate=>({answer:candidate.text,concepts:candidate.concepts}));
+ if(!selected&&intent==='gap_categories')selected=trySelect(eligible.filter(candidate=>candidate.priority===0&&candidate.relevantConceptScore>0),'relevant_approved_concept',candidate=>{const concepts=candidate.concepts;if(concepts.length<2)return null;return {answer:composeGapAnswer(concepts),concepts};});
+ if(!selected&&intent==='product_capabilities'){
+  const matching=eligible.filter(candidate=>candidate.sourceType==='prepared_knowledge'&&(candidate.category==='features'||candidate.category==='reporting_data')&&candidate.exactAnswerScore>=8).sort((a,b)=>b.exactAnswerScore-a.exactAnswerScore);
+  const chosen=matching.filter((candidate,index)=>index===0||candidate.sourceIds.some(id=>!matching.slice(0,index).some(previous=>previous.sourceIds.includes(id)))).slice(0,4);
+  if(chosen.length>=2){const answer=chosen.map(candidate=>`${candidate.section}: ${candidate.text}`).join(' '),sourceIds=[...new Set(chosen.flatMap(candidate=>candidate.sourceIds))],concepts:string[]=[],quality=validateAnswer(answer,sourceIds,concepts);diagnostics.answerQuality=quality;if(quality.passed){diagnostics.selectedPath='multi_source_composition';diagnostics.selectedSourceIds=sourceIds;diagnostics.selectedKnowledgeIds=sourceIds.map(id=>id.replace(/^knowledge:/,''));diagnostics.knowledgeAnswerPath='supported_feature_composition';selected={candidate:{...chosen[0],sourceIds,text:answer,concepts,exactAnswerScore:chosen.reduce((sum,item)=>sum+item.exactAnswerScore,0),relevantConceptScore:0,rejectionReasons:[]},answer,sourceIds,quality};}else diagnostics.knowledgeFallbackReason='composition_failed_quality_gate';}
+ }
+ if(!selected&&intent==='employer_proposition')tryKnowledgeComposition(eligible.filter(candidate=>candidate.priority===1&&['benefits','reporting_data','features'].includes(candidate.category||'')&&candidate.exactAnswerScore>0), 'multi_source_composition',4);
+ if(!selected&&intent==='product_mechanism')tryKnowledgeComposition(eligible.filter(candidate=>candidate.priority===1&&/^(how membership starts|evidence develops|root keeps learning)$/i.test(candidate.section)&&candidate.exactAnswerScore>0),'multi_source_composition',3);
+ if(!selected&&intent==='signup_process')tryKnowledgeComposition(eligible.filter(candidate=>candidate.priority===1&&/^(tell us about your organisation|confirm membership|set up root)$/i.test(candidate.section)&&candidate.exactAnswerScore>0),'multi_source_composition',3);
+ if(!selected&&intent==='pricing'){
+  const tiers=eligible.filter(candidate=>candidate.priority===1&&candidate.category==='pricing'&&candidate.sourceIds.length===1&&/(?:£\s?\d[\d,]*(?:\.\d{2})?|bespoke)/i.test(candidate.text)&&candidate.exactAnswerScore>0);
+  const taxNote=eligible.find(candidate=>candidate.priority===1&&candidate.category==='commitment'&&/all prices are shown excluding vat/i.test(candidate.text));
+  tryKnowledgeComposition([...tiers,...(taxNote?[taxNote]:[])],'multi_source_composition',6,true);
+ }
+ if(!selected&&intent!=='product_capabilities')selected=trySelect(eligible.filter(candidate=>candidate.sourceType==='prepared_knowledge'&&candidate.exactAnswerScore>0),'prepared_knowledge',candidate=>({answer:candidate.text,concepts:candidate.concepts}));
  if(!selected&&intent==='gap_categories'){
   const fragments=eligible.filter(candidate=>candidate.sourceIds.length===1&&candidate.concepts.length>0),conceptSources=new Map<string,Set<string>>();for(const candidate of fragments)for(const concept of candidate.concepts){const ids=conceptSources.get(concept)||new Set<string>();for(const id of candidate.sourceIds)ids.add(id);conceptSources.set(concept,ids);}
   const concepts=[...conceptSources.keys()],sourceIds=[...new Set(fragments.flatMap(candidate=>candidate.sourceIds))];if(concepts.length>=2&&sourceIds.length>=2){const answer=composeGapAnswer(concepts),quality=validateAnswer(answer,sourceIds,concepts);diagnostics.answerQuality=quality;if(quality.passed){diagnostics.selectedPath='multi_source_composition';diagnostics.selectedSourceIds=sourceIds;selected={candidate:{...fragments[0],sourceIds,text:fragments.map(candidate=>candidate.text).join(' '),id:fragments[0].id,sourceType:fragments.some(candidate=>candidate.sourceType==='playbook_step')?'playbook_step':'approved_claim',concepts,exactAnswerScore:0,relevantConceptScore:concepts.length,rejectionReasons:[]},answer,sourceIds,quality};}else diagnostics.fallbackReason='composed_answer_failed_quality_gate';}
  }
- if(!selected){const relevantCandidates=evaluated.filter(candidate=>candidate.exactAnswerScore>0||candidate.relevantConceptScore>0);diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason=diagnostics.fallbackReason|| (existing?.resolutionState==='exhausted'?'previous_bridge_exhausted_no_nested_bridge':bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'bridge_turn_limit_reached':relevantCandidates.length?'all_relevant_candidates_rejected_by_repetition_or_quality_gate':candidates.length?'no_direct_or_relevant_approved_concept':'no_approved_candidates');return safeFallback('exhausted',diagnostics);}
- const supportingText=selected.candidate.text,sourceType=selected.candidate.sourceType;
- return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:selected.answer,sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
+ if(!selected){const relevantCandidates=evaluated.filter(candidate=>candidate.exactAnswerScore>0||candidate.relevantConceptScore>0);diagnostics.selectedPath='safe_fallback';diagnostics.fallbackReason=diagnostics.fallbackReason|| (existing?.resolutionState==='exhausted'?'previous_bridge_exhausted_no_nested_bridge':bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'bridge_turn_limit_reached':relevantCandidates.length?'all_relevant_candidates_rejected_by_repetition_or_quality_gate':candidates.length?'no_direct_or_relevant_approved_concept':'no_approved_candidates');if(diagnostics.knowledgeLookupAttempted)diagnostics.knowledgeFallbackReason=knowledgeCandidates.length?'no_supported_knowledge_answer':'prepared_pack_has_no_relevant_items';diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);return safeFallback('exhausted',diagnostics);}
+ const supportingText=selected.candidate.text,sourceType=selected.candidate.sourceType;let sellerWording=selected.answer;
+ if(sourceType==='prepared_knowledge'){diagnostics.selectedKnowledgeIds=[...new Set(selected.sourceIds.map(id=>id.replace(/^knowledge:/,'')))];diagnostics.knowledgeAnswerPath=diagnostics.knowledgeAnswerPath||diagnostics.selectedPath||'direct_prepared_knowledge';const selectedFacts=selected.sourceIds.map(id=>sourceById.get(id)).filter((source):source is NonNullable<typeof source>=>!!source&&source.sourceType==='prepared_knowledge').map(source=>({section:source.section,text:source.text,...('category' in source?{category:source.category}:{})}));sellerWording=concisePreparedKnowledgeAnswer(intent,selectedFacts)||selected.answer;}diagnostics.knowledgeLookupDurationMs=Math.max(0,Date.now()-retrievalStartedAt);
+ return {...base,resolutionState:bridgeTurnCount>=MAX_PRACTICE_QUESTION_BRIDGE_TURNS?'exhausted':'active',fallbackDelivered:bridgeTurnCount>MAX_PRACTICE_QUESTION_BRIDGE_TURNS,approvedQuestionResponse:sellerWording,sourceType,sourceId:selected.candidate.id,sourceIds:selected.sourceIds,supportingText,retrievalDiagnostics:diagnostics};
 }
 
 export function practiceTerminalOutcome(classification:PracticeBuyerClassification):PracticeTerminalOutcome|null{
