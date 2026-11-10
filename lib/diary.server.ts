@@ -1,9 +1,16 @@
 import { readOperationalCollection } from "@/lib/operationalIntelligence.server";
 import { buildOperationalWork } from "@/lib/operationalWork";
 import type { RelationshipTenant } from "@/lib/relationshipWorkspace.server";
-import { diaryDay,diaryLabel,diaryShift,diaryWeek,type DiaryIntent,type DiarySnapshot } from "@/lib/diary";
+import { diaryDay,diaryLabel,diaryShift,diaryWeek,type DiaryIntent,type DiarySnapshotWithAppointments } from "@/lib/diary";
 import type { GuideAnswer } from "@/lib/rootCoachGuide";
-export async function readDiary(tenant:RelationshipTenant):Promise<DiarySnapshot>{return buildOperationalWork(await readOperationalCollection(tenant));}
+import { readDiaryAppointments } from "@/lib/diaryAppointments.server";
+export async function readDiary(tenant:RelationshipTenant):Promise<DiarySnapshotWithAppointments>{
+ const [collection,rows]=await Promise.all([readOperationalCollection(tenant),readDiaryAppointments(tenant.organisationId)]);
+ const snapshot=buildOperationalWork(collection),relationships=new Map<string,{person:string;company:string|null;href:string}>();
+ for(const record of collection.records){const id=record.workspace?.id;if(typeof id!="string"||record.intelligence.identity.humanReviewRequired)continue;relationships.set(id,{person:record.relationship.name,company:record.relationship.company||null,href:`/dashboard/growth/relationships/workspace_${id}?organisationId=${encodeURIComponent(tenant.organisationId)}`});}
+ const appointments=rows.map(row=>({id:row.id,title:row.title,startsAt:row.starts_at,endsAt:row.ends_at,startDate:row.start_date,endDate:row.end_date,timezone:row.timezone,allDay:row.all_day,location:row.location,meetingUrl:row.meeting_url,notes:row.notes,status:row.status,source:row.source,revision:Number(row.revision),createdAt:row.created_at,updatedAt:row.updated_at,cancelledAt:row.cancelled_at,relationship:row.relationship_id&&relationships.has(row.relationship_id)?({id:row.relationship_id,...relationships.get(row.relationship_id)!}):null}));
+ return {...snapshot,appointments};
+}
 export async function diaryAnswer(tenant:RelationshipTenant,intent:DiaryIntent,question?:string,reason?:(question:string,evidence:string,intent:"factual"|"interpretive")=>Promise<string>):Promise<GuideAnswer>{
  const link={id:"diary" as const,label:"Diary",href:`/dashboard/diary?organisationId=${encodeURIComponent(tenant.organisationId)}`};
  if(intent==="where")return {workspace:"Diary",message:"Open Diary in the primary navigation for Today, Week and Month. It reads canonical Ops work, not external calendars or appointments inferred from messages.",destinations:[link]};

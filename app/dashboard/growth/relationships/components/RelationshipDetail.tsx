@@ -49,6 +49,7 @@ export default function RelationshipDetail({organisationId,locator,initial}:{org
  const operational=<>{r.operationalHref&&<a className={button} href={r.operationalHref}>Open existing action workflow</a>}{r.contactId&&r.refs.some(ref=>ref.table==="inbox_items")&&r.contactId.includes("linkedin:")&&<a className={button} href={`/dashboard/responses/linkedin/conversations?${new URLSearchParams({organisationId,contactId:r.contactId})}`}>Log/paste LinkedIn conversation</a>}</>;
  return <main data-relationship-view={tab} className="relationship-workspace relationship-cockpit-screen mx-auto w-full max-w-[1800px] p-4 md:p-8">
  <a className="relationship-back" href={`/dashboard/growth/relationships?organisationId=${organisationId}`}>← Back to Relationships</a>
+ <a className={button} href={`/dashboard/diary?${new URLSearchParams({organisationId,...(typeof data.workspace?.id === "string" ? {relationshipId:data.workspace.id} : {}),relationshipSearch:r.name,...(r.company?{company:r.company}:{}),createAppointment:"1"})}`}>Create appointment</a>
  <header className="relationship-command relationship-identity-header">
   <div className="relationship-identity"><RelationshipAvatar name={r.name} kind={r.kind}/><div><h1>{r.name}</h1><p>{[r.role,r.company].filter(Boolean).join(" · ")||"Role/company not established"}</p><div className="relationship-status-tags"><span>{stageLabel(r.stage)}</span><span>{r.kind} relationship</span><span>{String(data.workspace?.retention||"active")}</span></div></div></div>
   <dl className="relationship-command-metrics">
