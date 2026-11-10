@@ -44,9 +44,9 @@ create function public.save_appointment(
   p_relationship_id uuid, p_title text, p_starts_at timestamptz, p_ends_at timestamptz,
   p_start_date date, p_end_date date, p_timezone text, p_all_day boolean,
   p_location text, p_meeting_url text, p_notes text, p_status text
-) returns public.appointments
+) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
-declare current_row public.appointments; result public.appointments; stamp timestamptz := clock_timestamp();
+declare stored_revision bigint; stored_status text; result public.appointments; stamp timestamptz := clock_timestamp();
 begin
   if p_actor is null or not exists (
     select 1 from public.organisation_members m
@@ -81,30 +81,38 @@ begin
       nullif(btrim(p_location),''),nullif(btrim(p_meeting_url),''),nullif(btrim(p_notes),''),p_status,
       case when p_relationship_id is null then 'ops_manual' else 'relationship' end
     ) returning * into result;
-    return result;
+    return to_jsonb(result);
   end if;
 
   if p_id is null or p_revision is null or p_revision<1 then raise exception 'appointment_revision_required'; end if;
-  select * into current_row from public.appointments where organisation_id=p_org and id=p_id for update;
+  select appointment.revision, appointment.status
+    into stored_revision, stored_status
+    from public.appointments as appointment
+    where appointment.organisation_id=p_org and appointment.id=p_id
+    for update;
   if not found then raise exception 'appointment_not_found'; end if;
-  if current_row.revision<>p_revision then raise exception 'appointment_revision_conflict'; end if;
-  if current_row.status in ('cancelled','completed') then raise exception 'appointment_not_editable'; end if;
+  if stored_revision is distinct from p_revision then raise exception 'appointment_revision_conflict'; end if;
+  if stored_status in ('cancelled','completed') then raise exception 'appointment_not_editable'; end if;
 
   if p_action='cancel' then
-    update public.appointments set status='cancelled',cancelled_at=stamp,updated_at=stamp,revision=revision+1
-    where organisation_id=p_org and id=p_id and revision=p_revision returning * into result;
-    return result;
+    update public.appointments as appointment
+      set status='cancelled',cancelled_at=stamp,updated_at=stamp,revision=appointment.revision+1
+      where appointment.organisation_id=p_org and appointment.id=p_id and appointment.revision=p_revision
+      returning appointment.* into result;
+    if not found then raise exception 'appointment_revision_conflict'; end if;
+    return to_jsonb(result);
   end if;
-  if current_row.status='tentative' and p_status='completed' then raise exception 'appointment_status_transition_invalid'; end if;
-  update public.appointments set
+  if stored_status='tentative' and p_status='completed' then raise exception 'appointment_status_transition_invalid'; end if;
+  update public.appointments as appointment set
     relationship_id=p_relationship_id,title=btrim(p_title),starts_at=p_starts_at,ends_at=p_ends_at,
     start_date=p_start_date,end_date=p_end_date,timezone=btrim(p_timezone),all_day=p_all_day,
     location=nullif(btrim(p_location),''),meeting_url=nullif(btrim(p_meeting_url),''),notes=nullif(btrim(p_notes),''),
     status=p_status,source=case when p_relationship_id is null then 'ops_manual' else 'relationship' end,
-    updated_at=stamp,revision=revision+1
-  where organisation_id=p_org and id=p_id and revision=p_revision returning * into result;
+    updated_at=stamp,revision=appointment.revision+1
+  where appointment.organisation_id=p_org and appointment.id=p_id and appointment.revision=p_revision
+  returning appointment.* into result;
   if not found then raise exception 'appointment_revision_conflict'; end if;
-  return result;
+  return to_jsonb(result);
 end $$;
 
 revoke all on function public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text) from public,anon,authenticated,service_role;
