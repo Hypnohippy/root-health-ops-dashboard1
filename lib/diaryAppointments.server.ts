@@ -10,6 +10,9 @@ export type DiaryAppointmentRow = {
   timezone: string; all_day: boolean; location: string | null; meeting_url: string | null; notes: string | null;
   status: "tentative" | "confirmed" | "completed" | "cancelled"; source: "ops_manual" | "relationship";
   revision: number; created_at: string; updated_at: string; cancelled_at: string | null;
+  google_calendar_sync_enabled?: boolean; google_calendar_id?: string | null; google_calendar_event_id?: string | null;
+  google_calendar_etag?: string | null; google_calendar_synced_at?: string | null;
+  google_calendar_sync_pending?: boolean;
 };
 
 export class DiaryAppointmentError extends Error {

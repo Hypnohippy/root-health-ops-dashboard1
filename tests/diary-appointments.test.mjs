@@ -113,6 +113,7 @@ test("appointment create route takes organisation and actor only from authentica
       saveDiaryAppointment: async (tenant, action, input) => { captured = { tenant, action, input }; return { id: "created", organisation_id: tenant.organisationId }; },
       DiaryAppointmentError: class extends Error {},
     },
+    "@/lib/diaryGoogleCalendar.server": { syncRootAppointment: async () => {} },
   });
   const response = await route.POST({ json: async () => ({ organisationId: otherOrg, ownerUserId: viewer, title: "Planning call" }) });
   assert.equal(response.init.status, 201);

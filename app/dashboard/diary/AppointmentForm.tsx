@@ -7,18 +7,19 @@ type RelationshipOption = { id: string; person: string; company: string | null; 
 type Values = {
   title: string; startDate: string; startTime: string; endDate: string; endTime: string; allDay: boolean;
   timezone: string; relationshipId: string; relationshipSearch: string; location: string; meetingUrl: string; notes: string;
-  status: "tentative" | "confirmed" | "completed";
+  status: "tentative" | "confirmed" | "completed"; syncToGoogle: boolean;
 };
 function valuesFrom(appointment: DiaryAppointment | null, date: string, pref: { id?: string; person?: string; company?: string | null }): Values {
-  if (!appointment) return { title: pref.person ? `${pref.person} appointment` : "", startDate: date, startTime: "10:00", endDate: date, endTime: "10:30", allDay: false, timezone: "Europe/London", relationshipId: pref.id || "", relationshipSearch: pref.person || "", location: "", meetingUrl: "", notes: "", status: "tentative" };
+  if (!appointment) return { title: pref.person ? `${pref.person} appointment` : "", startDate: date, startTime: "10:00", endDate: date, endTime: "10:30", allDay: false, timezone: "Europe/London", relationshipId: pref.id || "", relationshipSearch: pref.person || "", location: "", meetingUrl: "", notes: "", status: "tentative", syncToGoogle: false };
   const start = appointment.allDay ? { date: appointment.startDate || date, time: "" } : isoToLocalDateTime(appointment.startsAt!, appointment.timezone);
   const end = appointment.allDay ? { date: appointment.endDate ? addDateDays(appointment.endDate, -1) : start.date, time: "" } : isoToLocalDateTime(appointment.endsAt!, appointment.timezone);
-  return { title: appointment.title, startDate: start.date, startTime: start.time, endDate: end.date, endTime: end.time, allDay: appointment.allDay, timezone: appointment.timezone, relationshipId: appointment.relationship?.id || "", relationshipSearch: appointment.relationship?.person || "", location: appointment.location || "", meetingUrl: appointment.meetingUrl || "", notes: appointment.notes || "", status: appointment.status === "cancelled" ? "tentative" : appointment.status };
+  return { title: appointment.title, startDate: start.date, startTime: start.time, endDate: end.date, endTime: end.time, allDay: appointment.allDay, timezone: appointment.timezone, relationshipId: appointment.relationship?.id || "", relationshipSearch: appointment.relationship?.person || "", location: appointment.location || "", meetingUrl: appointment.meetingUrl || "", notes: appointment.notes || "", status: appointment.status === "cancelled" ? "tentative" : appointment.status, syncToGoogle: appointment.googleCalendarSyncEnabled === true };
 }
 
-export default function AppointmentForm({ organisationId, appointment, date, prefill, onCancel, onSave }: {
+export default function AppointmentForm({ organisationId, appointment, date, prefill, calendarConnected, onCancel, onSave }: {
   organisationId: string; appointment: DiaryAppointment | null; date: string;
   prefill: { id?: string; person?: string; company?: string | null };
+  calendarConnected: boolean;
   onCancel: () => void; onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
   const [values, setValues] = useState(() => valuesFrom(appointment, date, prefill));
@@ -69,6 +70,8 @@ export default function AppointmentForm({ organisationId, appointment, date, pre
     <label>Meeting link<input type="url" maxLength={2048} value={values.meetingUrl} onChange={e => set("meetingUrl", e.target.value)} placeholder="https://…" /></label>
     <label>Notes<textarea maxLength={10000} rows={3} value={values.notes} onChange={e => set("notes", e.target.value)} /></label>
     <label>Status<select value={values.status} onChange={e => set("status", e.target.value)}><option value="tentative">Tentative</option><option value="confirmed">Confirmed</option><option value="completed">Completed</option></select></label>
+    {calendarConnected && <label className="diary-checkbox"><input type="checkbox" checked={values.syncToGoogle} disabled={appointment?.googleCalendarSyncEnabled === true} onChange={e => set("syncToGoogle", e.target.checked)} />Sync to Google Calendar{appointment?.googleCalendarSyncEnabled ? " · linked mirror stays enabled" : ""}</label>}
+    {!calendarConnected && appointment?.googleCalendarSyncEnabled && <p>Google Calendar sync is enabled for this appointment. Reconnect Calendar to resume syncing.</p>}
     <div className="diary-form-actions"><button type="button" onClick={onCancel}>Close</button><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save appointment"}</button></div>
   </form>;
 }
