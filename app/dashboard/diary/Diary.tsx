@@ -15,6 +15,12 @@ function appointmentTime(appointment: DiaryAppointment) {
   const fmt = (value: string) => new Intl.DateTimeFormat("en-GB", { timeZone: appointment.timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(value));
   return `${fmt(appointment.startsAt)}–${fmt(appointment.endsAt)} · ${appointment.timezone}`;
 }
+function appointmentDateLabel(allDay: boolean, startDate: string | null, startsAt: string | null, timezone: string) {
+  const date = appointmentDateKey({ all_day: allDay, starts_at: startsAt, start_date: startDate, timezone });
+  if (!date) return null;
+  const label = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`));
+  return { date, label };
+}
 function appointmentSortTime(appointment: DiaryAppointment) { return appointment.allDay ? `${appointment.startDate || ""}T00:00:00Z` : appointment.startsAt || "9999"; }
 function googleDateKey(event: DiaryGoogleCalendarEvent) { return appointmentDateKey({ all_day: event.allDay, starts_at: event.startsAt, start_date: event.startDate, timezone: event.timezone }); }
 function googleSortTime(event: DiaryGoogleCalendarEvent) { return event.allDay ? `${event.startDate || ""}T00:00:00Z` : event.startsAt || "9999"; }
@@ -24,7 +30,7 @@ function eventTime(event: DiaryGoogleCalendarEvent) {
   const fmt = (value: string) => new Intl.DateTimeFormat("en-GB", { timeZone: event.timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(value));
   return `${fmt(event.startsAt)}–${fmt(event.endsAt)} · ${event.timezone}`;
 }
-function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel }: { entries: AgendaEntry[]; onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment) => void; onRetry?: (appointment: DiaryAppointment) => void; emptyLabel: string }) {
+function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmentDate = false }: { entries: AgendaEntry[]; onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment) => void; onRetry?: (appointment: DiaryAppointment) => void; emptyLabel: string; showAppointmentDate?: boolean }) {
   if (!entries.length) return <p className="diary-empty">{emptyLabel}</p>;
   return <ul className="diary-items">{entries.map(entry => entry.kind === "ops" ? <li key={`ops:${entry.item.id}`} className="diary-operational-item"><a href={entry.item.href}>
     <span className="diary-kind">{entry.item.type} · {entry.item.workspace}</span><strong>{entry.item.title}</strong>{entry.item.company && <span>{entry.item.company}</span>}
@@ -32,6 +38,7 @@ function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel }: { entries: A
     <span className="diary-status">{entry.item.status} · Actionable: {entry.item.actionable ? "Yes" : "No"}{entry.item.suppressionReason ? ` · ${entry.item.suppressionReason}` : ""} → Open record</span>{entry.item.navigationReason && <small>{entry.item.navigationReason}</small>}
   </a></li> : entry.kind === "appointment" ? <li key={`appointment:${entry.appointment.id}`} className={`diary-appointment diary-appointment-${entry.appointment.status}`}>
     <article><span className="diary-kind">Appointment · {entry.appointment.source === "relationship" ? "Relationship" : "Ops"}</span>
+      {showAppointmentDate && (() => { const date = appointmentDateLabel(entry.appointment.allDay, entry.appointment.startDate, entry.appointment.startsAt, entry.appointment.timezone); return date && <time className="diary-appointment-date" dateTime={date.date}>{date.label}</time>; })()}
       <time className="diary-appointment-time" dateTime={entry.appointment.startsAt || entry.appointment.startDate || undefined}>{appointmentTime(entry.appointment)}</time>
       <strong className="diary-appointment-title">{entry.appointment.title}</strong>{entry.appointment.relationship && <span>{entry.appointment.relationship.person}{entry.appointment.relationship.company ? ` · ${entry.appointment.relationship.company}` : ""}</span>}
       {entry.appointment.location && <span>{entry.appointment.location}</span>}{entry.appointment.meetingUrl && <a href={entry.appointment.meetingUrl} target="_blank" rel="noreferrer">Open meeting link</a>}
@@ -42,12 +49,12 @@ function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel }: { entries: A
       {entry.appointment.status !== "completed" && entry.appointment.status !== "cancelled" && <div className="diary-appointment-actions"><button type="button" onClick={() => onEdit(entry.appointment)}>Edit / reschedule</button><button type="button" onClick={() => onCancel(entry.appointment)}>Cancel appointment</button></div>}
     </article>
   </li> : <li key={`google:${entry.event.id}`} className="diary-appointment diary-google-calendar-event">
-    <article><span className="diary-kind">Google Calendar · Read only</span><time className="diary-appointment-time" dateTime={entry.event.startsAt || entry.event.startDate || undefined}>{eventTime(entry.event)}</time>
+    <article><span className="diary-kind">Google Calendar · Read only</span>{showAppointmentDate && (() => { const date = appointmentDateLabel(entry.event.allDay, entry.event.startDate, entry.event.startsAt, entry.event.timezone); return date && <time className="diary-appointment-date" dateTime={date.date}>{date.label}</time>; })()}<time className="diary-appointment-time" dateTime={entry.event.startsAt || entry.event.startDate || undefined}>{eventTime(entry.event)}</time>
       <strong className="diary-appointment-title">{entry.event.title}</strong>{entry.event.location && <span>{entry.event.location}</span>}{entry.event.meetingUrl && <a href={entry.event.meetingUrl} target="_blank" rel="noreferrer">Open meeting link</a>}
       <span className="diary-status">Google Calendar event</span></article>
   </li>)}</ul>;
 }
-type LaneGroup = { heading: string; entries: AgendaEntry[] };
+type LaneGroup = { heading: string; entries: AgendaEntry[]; showAppointmentDate?: boolean };
 function AppointmentWorkLanes({ appointmentGroups, workGroups, onEdit, onCancel, onRetry, className }: {
   appointmentGroups: LaneGroup[]; workGroups: LaneGroup[];
   onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment) => void; onRetry?: (appointment: DiaryAppointment) => void;
@@ -60,7 +67,7 @@ function AppointmentWorkLanes({ appointmentGroups, workGroups, onEdit, onCancel,
       <p className="diary-lane-kicker">Primary</p><h2 id="diary-appointments-heading">Appointments <small>{appointmentCount}</small></h2>
       {appointmentGroups.map((group, index) => <div className="diary-lane-group" key={`appointments:${index}`}>
         {group.heading && <h3>{group.heading} <small>{group.entries.length}</small></h3>}
-        <Agenda entries={group.entries} onEdit={onEdit} onCancel={onCancel} onRetry={onRetry} emptyLabel="No appointments scheduled." />
+        <Agenda entries={group.entries} onEdit={onEdit} onCancel={onCancel} onRetry={onRetry} emptyLabel="No appointments scheduled." showAppointmentDate={group.showAppointmentDate} />
       </div>)}
     </section>
     <section className="diary-lane diary-lane-operational-work" aria-labelledby="diary-operational-heading">
@@ -144,7 +151,7 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
       appointmentGroups={[
         ...(todayReviewAppointments.length ? [{ heading: "Past appointments to review", entries: appointmentList(todayReviewAppointments) }] : []),
         { heading: "Today", entries: todayAppointments },
-        { heading: "Upcoming", entries: upcomingAppointments },
+        { heading: "Upcoming", entries: upcomingAppointments, showAppointmentDate: true },
       ]}
       workGroups={[
         { heading: "Overdue", entries: workList(groups.overdue) },
