@@ -71,6 +71,46 @@ test('cancellation mirror warning remains visible after the appointment refresh'
   await act(()=>tree.unmount());
 });
 
+test('API cancellation errors stay visible in the dialog and retry sends one new request',async()=>{
+  const data={...snapshot,appointments:[appointment]},requests=[];let attempts=0,tree;
+  const fetcher=async(url,init={})=>{if(init.method==='POST'){requests.push([url,init]);attempts++;if(attempts===1)return Response.json({error:'Appointment revision conflict. Refresh and review the latest appointment.'},{status:409});return Response.json({success:true,appointment:{...appointment,status:'cancelled',revision:3}});}return Response.json({...data,appointments:[{...appointment,status:'cancelled',revision:3}]});};
+  const TestDiary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model,'__fetch':fetcher}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(TestDiary,{organisationId:org,initial:data}));});
+  const open=async()=>act(async()=>tree.root.findAllByType('button').find(button=>button.props.children==='Cancel appointment').props.onClick({currentTarget:{focus(){},isConnected:false}}));
+  await open();
+  let dialog=tree.root.findByProps({role:'dialog'});
+  await act(async()=>dialog.findAllByType('button').find(button=>button.props.children==='Cancel appointment').props.onClick());
+  dialog=tree.root.findByProps({role:'dialog'});
+  const error=dialog.findByProps({role:'alert'});
+  assert.equal(error.children.join(''),'Appointment revision conflict. Refresh and review the latest appointment.');
+  assert.equal(error.props.tabIndex,-1);assert.match(dialog.props['aria-describedby'],/diary-cancel-error/);
+  assert.equal(dialog.findAllByType('button').find(button=>button.props.children==='Retry cancellation').props.disabled,false);
+  assert.equal(requests.length,1,'a failed request is not retried automatically');
+  await act(async()=>dialog.findAllByType('button').find(button=>button.props.children==='Retry cancellation').props.onClick());
+  assert.equal(requests.length,2,'one explicit retry issues exactly one new request');
+  assert.equal(JSON.parse(requests[1][1].body).revision,2);
+  assert.equal(tree.root.findAllByProps({role:'dialog'}).length,0,'successful retry closes the dialog');
+  assert.match(tree.root.findAllByProps({role:'status'}).map(node=>node.children.join('')).join(' '),/Appointment cancelled and retained in history/);
+  await act(()=>tree.unmount());
+});
+
+test('network cancellation failure is announced inside the open dialog and Keep closes without another write',async()=>{
+  const data={...snapshot,appointments:[appointment]},requests=[];let tree;
+  const fetcher=async(url,init={})=>{if(init.method==='POST'){requests.push([url,init]);throw new Error('network unavailable');}return Response.json(data);};
+  const TestDiary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model,'__fetch':fetcher}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(TestDiary,{organisationId:org,initial:data}));});
+  await act(async()=>tree.root.findAllByType('button').find(button=>button.props.children==='Cancel appointment').props.onClick({currentTarget:{focus(){},isConnected:false}}));
+  let dialog=tree.root.findByProps({role:'dialog'});
+  await act(async()=>dialog.findAllByType('button').find(button=>button.props.children==='Cancel appointment').props.onClick());
+  dialog=tree.root.findByProps({role:'dialog'});
+  assert.match(dialog.findByProps({role:'alert'}).children.join(''),/not cancelled\. Check your connection and try again\./);
+  assert.equal(tree.root.findAllByProps({role:'status'}).some(node=>node.children.join('').includes('could not be cancelled')),false,'failure text is not hidden in the page-level status behind the backdrop');
+  assert.equal(requests.length,1);assert.equal(dialog.findAllByType('button').find(button=>button.props.children==='Retry cancellation').props.disabled,false);
+  await act(()=>dialog.findAllByType('button').find(button=>button.props.children==='Keep appointment').props.onClick());
+  assert.equal(tree.root.findAllByProps({role:'dialog'}).length,0);assert.equal(requests.length,1,'Keep closes without a second cancellation write');
+  await act(()=>tree.unmount());
+});
+
 test('all-day appointment keeps date semantics and cancellation history stays out of active agenda',async()=>{let tree;const data={...snapshot,appointments:[{...appointment,id:'all-day',title:'Planning day',allDay:true,startsAt:null,endsAt:null,startDate:snapshot.today,endDate:'2026-10-23',timezone:'Europe/London',status:'tentative',relationship:null},{...appointment,id:'cancelled',title:'Cancelled call',status:'cancelled',cancelledAt:'2026-10-21T12:00:00Z'}]};await act(async()=>{tree=renderer.create(React.createElement(Diary,{organisationId:org,initial:data}));});assert.match(JSON.stringify(tree.root.findByProps({className:'diary-lanes diary-today'}).findAllByType('strong').map(n=>n.children.join(''))),/Planning day/);assert.doesNotMatch(JSON.stringify(tree.root.findByProps({className:'diary-lanes diary-today'}).findAllByType('strong').map(n=>n.children.join(''))),/Cancelled call/);assert.match(JSON.stringify(tree.toJSON()),/All day/);const summary=tree.root.findAllByType('summary').find(n=>n.children.join('').includes('Cancelled appointments'));assert.ok(summary);const cancelled=tree.root.findByProps({className:'diary-appointment diary-appointment-cancelled'});assert.equal(cancelled.findAllByType('button').length,0);await act(()=>tree.unmount());});
 
 test('Add appointment form sends explicit values and refreshes without changing existing Ops items',async()=>{const requests=[];const created={...appointment,id:'new-apt',title:'Test call',relationship:null};const data={...snapshot,appointments:[created]};const deps={__fetch:async(url,init={})=>{requests.push([url,init]);if(init.method==='POST')return Response.json({success:true,appointment:created},{status:201});return Response.json(data);}};const FormDiary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model,'__fetch':deps.__fetch}).default;let tree;await act(async()=>{tree=renderer.create(React.createElement(FormDiary,{organisationId:org,initial:snapshot}));});await act(async()=>tree.root.findAllByType('button').find(b=>b.props.children==='+ Add appointment').props.onClick());const form=tree.root.findByType('form'),title=form.findAllByType('input').find(i=>i.props.value==='');await act(()=>title.props.onChange({target:{value:'Test call'}}));await act(async()=>form.props.onSubmit({preventDefault(){}}));assert.equal(requests[0][1].method,'POST');assert.match(requests[0][0],/api\/diary\/appointments/);assert.match(JSON.stringify(requests[0][1].body),/Test call/);assert.match(JSON.stringify(tree.toJSON()),/Test call/);assert.match(JSON.stringify(tree.toJSON()),/Controlled follow-up/);await act(()=>tree.unmount());});
