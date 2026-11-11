@@ -51,12 +51,29 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
     await db.exec(migration);
     const oldAppointment = (await db.query("select save_appointment($1,$2,'create',null,null,null,'Before Meet migration','2026-11-10T08:00:00Z','2026-11-10T08:30:00Z',null,null,'Europe/London',false,null,'https://calls.example/legacy',null,'confirmed') as row", [org, actor])).rows[0].row;
     await db.exec(fs.readFileSync("supabase/migrations/20261111120000_diary_google_meet_invitations.sql", "utf8"));
+    const rpcSignatures = (await db.query(`select
+      to_regprocedure('public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)') is not null as legacy_exists,
+      to_regprocedure('public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)') is not null as meet_exists`)).rows[0];
+    assert.deepEqual(rpcSignatures, { legacy_exists: true, meet_exists: true }, "migration retains the old RPC and adds the Meet-aware overload");
     const oldState = (await db.query("select google_meet_enabled,google_meet_request_id,google_meet_url,google_calendar_attendee_email,meeting_url from appointments where id=$1", [oldAppointment.id])).rows[0];
     assert.deepEqual(oldState, { google_meet_enabled: false, google_meet_request_id: null, google_meet_url: null, google_calendar_attendee_email: null, meeting_url: "https://calls.example/legacy" }, "existing appointments default safely without backfilling or changing meeting_url");
-    const call = async ({ action, id, revision, relationshipId = null, title = "Auriel Wetherall call", start = "2026-11-10T10:00:00Z", end = "2026-11-10T10:30:00Z", status = "tentative", actorId = actor, tenant = org, googleMeetEnabled = false, attendeeEmail = null } = {}) => (await db.query(
-      "select save_appointment($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null,'Europe/London',false,null,null,null,$10,$11,$12) as row",
-      [tenant, actorId, action, id ?? null, revision ?? null, relationshipId, title, start, end, status, googleMeetEnabled, attendeeEmail],
+    const call = async ({ action, id, revision, relationshipId = null, title = "Auriel Wetherall call", start = "2026-11-10T10:00:00Z", end = "2026-11-10T10:30:00Z", status = "tentative", actorId = actor, tenant = org, googleMeetEnabled = false, attendeeEmail = null, meetingUrl = null } = {}) => (await db.query(
+      "select save_appointment($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null,'Europe/London',false,null,$13,null,$10,$11,$12) as row",
+      [tenant, actorId, action, id ?? null, revision ?? null, relationshipId, title, start, end, status, googleMeetEnabled, attendeeEmail, meetingUrl],
     )).rows[0].row;
+    const legacyCall = async ({ action, id = null, revision = null, relationshipId = null, title = "Legacy Diary appointment", start = "2026-11-10T10:00:00Z", end = "2026-11-10T10:30:00Z", status = "confirmed", actorId = actor, tenant = org, meetingUrl = null } = {}) => (await db.query(
+      "select save_appointment($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null,'Europe/London',false,null,$10,null,$11) as row",
+      [tenant, actorId, action, id, revision, relationshipId, title, start, end, meetingUrl, status],
+    )).rows[0].row;
+    const legacyCreated = await legacyCall({ action: "create", title: "Legacy create after Meet migration", meetingUrl: "https://calls.example/legacy-after-migration" });
+    assert.equal(legacyCreated.google_meet_enabled, false); assert.equal(legacyCreated.google_calendar_attendee_email, null);
+    const legacyEdited = await legacyCall({ action: "update", id: legacyCreated.id, revision: 1, title: "Legacy edit after Meet migration", meetingUrl: "https://calls.example/legacy-after-migration" });
+    assert.equal(legacyEdited.title, "Legacy edit after Meet migration"); assert.equal(legacyEdited.revision, 2);
+    const legacyRescheduled = await legacyCall({ action: "update", id: legacyCreated.id, revision: 2, title: "Legacy reschedule after Meet migration", start: "2026-11-11T11:00:00Z", end: "2026-11-11T11:30:00Z", meetingUrl: "https://calls.example/legacy-after-migration" });
+    assert.equal(new Date(legacyRescheduled.starts_at).toISOString(), "2026-11-11T11:00:00.000Z"); assert.equal(legacyRescheduled.revision, 3);
+    assert.equal(legacyRescheduled.meeting_url, "https://calls.example/legacy-after-migration");
+    const legacyCancelled = await legacyCall({ action: "cancel", id: legacyCreated.id, revision: 3, title: null, start: null, end: null, meetingUrl: null, status: null });
+    assert.equal(legacyCancelled.status, "cancelled"); assert.equal(legacyCancelled.revision, 4);
     const created = await call({ action: "create", relationshipId: relationship, status: "confirmed", googleMeetEnabled: true, attendeeEmail: "sam@example.com" });
     assert.deepEqual(Object.keys(created).sort(), [
       "id", "organisation_id", "owner_user_id", "relationship_id", "title", "starts_at", "ends_at", "start_date", "end_date",
@@ -65,6 +82,14 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
     ].sort(), "JSONB RPC result contains every DiaryAppointmentRow field");
     assert.equal(created.owner_user_id, actor); assert.equal(created.source, "relationship"); assert.equal(created.status, "confirmed"); assert.equal(created.revision, 1);
     assert.equal(created.google_meet_enabled, true); assert.equal(created.google_calendar_attendee_email, "sam@example.com");
+    const meetPreservationCandidate = await call({ action: "create", title: "Meet state preservation", status: "confirmed", googleMeetEnabled: true, attendeeEmail: "sam@example.com", meetingUrl: "https://calls.example/meet-preserved" });
+    const oldEditOfMeetAppointment = await legacyCall({ action: "update", id: meetPreservationCandidate.id, revision: 1, title: "Legacy edit preserves Meet", start: "2026-11-10T10:00:00Z", end: "2026-11-10T10:30:00Z", status: "confirmed", meetingUrl: "https://calls.example/meet-preserved" });
+    assert.equal(oldEditOfMeetAppointment.google_meet_enabled, true, "legacy UPDATE omits the Meet column and preserves its value");
+    assert.equal(oldEditOfMeetAppointment.google_calendar_attendee_email, "sam@example.com", "legacy UPDATE preserves attendee intent");
+    assert.equal(oldEditOfMeetAppointment.meeting_url, "https://calls.example/meet-preserved", "legacy UPDATE leaves the existing meeting_url unchanged");
+    const oldCancelOfMeetAppointment = await legacyCall({ action: "cancel", id: meetPreservationCandidate.id, revision: 2, title: null, start: null, end: null, meetingUrl: null, status: null });
+    assert.equal(oldCancelOfMeetAppointment.google_meet_enabled, true, "legacy CANCEL preserves Meet intent");
+    assert.equal(oldCancelOfMeetAppointment.google_calendar_attendee_email, "sam@example.com", "legacy CANCEL preserves attendee intent");
     const edited = await call({ action: "update", id: created.id, revision: 1, title: "Auriel follow-up", start: "2026-11-12T11:00:00Z", end: "2026-11-12T11:45:00Z", status: "confirmed" });
     assert.equal(edited.title, "Auriel follow-up"); assert.equal(new Date(edited.starts_at).toISOString(), "2026-11-12T11:00:00.000Z"); assert.equal(edited.revision, 2);
     const rescheduled = await call({ action: "update", id: created.id, revision: 2, title: "Auriel follow-up", start: "2026-11-13T14:00:00Z", end: "2026-11-13T14:45:00Z", status: "confirmed" });
@@ -84,7 +109,7 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
     const completed = await call({ action: "update", id: completedCandidate.id, revision: 1, status: "completed" });
     assert.equal(completed.status, "completed"); assert.equal(completed.revision, 2);
     await assert.rejects(call({ action: "update", id: completed.id, revision: 2 }), error => error.message.includes("appointment_not_editable"));
-    assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [org])).rows[0].n, 3, "cancelled and pre-migration appointments remain stored alongside the completed appointment");
+    assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [org])).rows[0].n, 5, "cancelled, legacy, preservation, pre-migration and completed appointments remain stored");
     assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [otherOrg])).rows[0].n, 1, "foreign appointment remains isolated in its tenant");
     assert.equal((await db.query("select count(*)::int n from growth_targets")).rows[0].n, 1, "existing meeting source is unchanged");
     assert.equal((await db.query("select count(*)::int n from relationship_tasks")).rows[0].n, 1, "existing task source is unchanged");
@@ -96,9 +121,26 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
       has_column_privilege('service_role','public.appointments','google_meet_url','UPDATE') service_meet_url_update,
       has_column_privilege('authenticated','public.appointments','google_meet_request_id','UPDATE') user_request_id_update,
       has_column_privilege('authenticated','public.appointments','google_meet_url','UPDATE') user_meet_url_update,
+      has_function_privilege('anon','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)','EXECUTE') anon_legacy_execute,
+      has_function_privilege('authenticated','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)','EXECUTE') authenticated_legacy_execute,
+      has_function_privilege('service_role','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)','EXECUTE') service_legacy_execute,
+      has_function_privilege('anon','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)','EXECUTE') anon_meet_execute,
+      has_function_privilege('authenticated','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)','EXECUTE') authenticated_meet_execute,
+      has_function_privilege('service_role','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)','EXECUTE') service_meet_execute,
       (select relrowsecurity from pg_class where relname='appointments') rls`)).rows[0];
-    assert.deepEqual(perms, { anon_read: false, user_write: false, service_read: true, service_direct_write: false, service_request_id_update: true, service_meet_url_update: true, user_request_id_update: false, user_meet_url_update: false, rls: true });
-    assert.equal((await db.query("select has_function_privilege('anon','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)','EXECUTE') allowed")).rows[0].allowed, false);
+    assert.deepEqual(perms, {
+      anon_read: false, user_write: false, service_read: true, service_direct_write: false,
+      service_request_id_update: true, service_meet_url_update: true, user_request_id_update: false, user_meet_url_update: false,
+      anon_legacy_execute: false, authenticated_legacy_execute: false, service_legacy_execute: true,
+      anon_meet_execute: false, authenticated_meet_execute: false, service_meet_execute: true, rls: true,
+    });
+    const rpcArgumentNames = (await db.query(`select
+      (select proargnames from pg_proc where oid=to_regprocedure('public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)')) legacy,
+      (select proargnames from pg_proc where oid=to_regprocedure('public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)')) meet`)).rows[0];
+    for (const argName of ["p_google_meet_request_id", "p_google_meet_url"]) {
+      assert.equal(rpcArgumentNames.legacy.includes(argName), false, `legacy RPC cannot accept ${argName}`);
+      assert.equal(rpcArgumentNames.meet.includes(argName), false, `Meet-aware RPC cannot accept ${argName}`);
+    }
   } finally { await db.close(); }
 });
 

@@ -17,8 +17,13 @@ alter table public.appointments
 grant update (google_meet_request_id, google_meet_url)
   on public.appointments to service_role;
 
-drop function public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text);
+-- Keep the original 17-argument RPC available for the currently deployed
+-- Diary server. Its INSERT omits the new columns (using false/NULL defaults),
+-- and its UPDATE/CANCEL statements do not touch them, preserving Meet state.
+revoke all on function public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text) from public,anon,authenticated,service_role;
+grant execute on function public.save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text) to service_role;
 
+-- The 19-argument overload is used by the Meet-aware Diary server.
 create function public.save_appointment(
   p_org uuid, p_actor uuid, p_action text, p_id uuid, p_revision bigint,
   p_relationship_id uuid, p_title text, p_starts_at timestamptz, p_ends_at timestamptz,
