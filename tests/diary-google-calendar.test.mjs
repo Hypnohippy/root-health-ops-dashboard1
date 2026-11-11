@@ -26,15 +26,16 @@ test("Calendar projection preserves all-day dates, video links and UK DST-safe b
   assert.equal(model.googleEventId("org", "appointment"), model.googleEventId("org", "appointment"));
 });
 
-function calendarHarness({ loseFirstInsertResponse = false } = {}) {
+function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "success" } = {}) {
   const db = { connection: null, appointments: new Map(), queriedTables: [] };
   class Query {
     constructor(table) { this.table = table; this.filters = {}; this.fields = {}; }
-    select() { return this; }
+    select(fields) { this.selected = fields; return this; }
     upsert(row) { db.connection = structuredClone(row); return Promise.resolve({ error: null }); }
     update(fields) { this.fields = fields; return this; }
     eq(key, value) { this.filters[key] = value; return this; }
-    maybeSingle() { if (this.table === "appointments") { const current = db.appointments.get(this.filters.id); if (current && current.organisation_id === this.filters.organisation_id) Object.assign(current, structuredClone(this.fields)); return Promise.resolve({ data: current && current.organisation_id === this.filters.organisation_id ? { id: current.id } : null, error: null }); } return Promise.resolve({ data: this.table === "google_calendar_connections" ? db.connection : null, error: null }); }
+    is(key, value) { this.filters[key] = value; return this; }
+    maybeSingle() { if (this.table === "appointments") { const current = db.appointments.get(this.filters.id); const matches = current && current.organisation_id === this.filters.organisation_id && (!Object.hasOwn(this.filters, "google_meet_request_id") || current.google_meet_request_id === this.filters.google_meet_request_id); if (matches) Object.assign(current, structuredClone(this.fields)); const keys = (this.selected || "id").split(",").map(value => value.trim()); return Promise.resolve({ data: matches ? Object.fromEntries(keys.map(key => [key, current[key]])) : null, error: null }); } return Promise.resolve({ data: this.table === "google_calendar_connections" ? db.connection : null, error: null }); }
     then(resolve, reject) {
       if (this.table === "appointments") {
         const current = db.appointments.get(this.filters.id);
@@ -44,22 +45,31 @@ function calendarHarness({ loseFirstInsertResponse = false } = {}) {
     }
   }
   const supabaseAdmin = { from(table) { db.queriedTables.push(table); return new Query(table); } };
-  const events = new Map(); let insertCalls = 0, updateCalls = 0, listArgs;
+  const events = new Map(); let insertCalls = 0, updateCalls = 0, listArgs; const operations = [];
+  const withConference = (event, request) => {
+    if (!request) return event;
+    const existing = event.conferenceData?.createRequest;
+    if (existing?.requestId === request.requestId && existing.status?.statusCode === "success") return event;
+    const statusCode = conferenceStatus;
+    event.conferenceData = { createRequest: { ...structuredClone(request), status: { statusCode } }, ...(statusCode === "success" ? { conferenceSolution: { key: { type: "hangoutsMeet" } }, entryPoints: [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }] } : {}) };
+    if (statusCode === "success") event.hangoutLink = "https://meet.google.com/abc-defg-hij";
+    return event;
+  };
   const calendar = { events: {
     async list(args) { listArgs = args; return { data: { items: [...events.values()] } }; },
-    async insert({ requestBody }) { insertCalls++; if (events.has(requestBody.id)) throw { code: 409 }; const created = { ...structuredClone(requestBody), etag: "etag-1" }; events.set(requestBody.id, created); if (loseFirstInsertResponse && insertCalls === 1) throw { code: 503 }; return { data: created }; },
+    async insert({ requestBody, sendUpdates, conferenceDataVersion }) { insertCalls++; operations.push({ kind: "insert", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); if (events.has(requestBody.id)) throw { code: 409 }; const created = withConference({ ...structuredClone(requestBody), etag: "etag-1" }, requestBody.conferenceData?.createRequest); events.set(requestBody.id, created); if (loseFirstInsertResponse && insertCalls === 1) throw { code: 503 }; return { data: structuredClone(created) }; },
     async get({ eventId }) { const event = events.get(eventId); if (!event) throw { code: 404 }; return { data: structuredClone(event) }; },
-    async update({ eventId, requestBody }, options) { updateCalls++; const current = events.get(eventId); assert.equal(options?.headers?.["If-Match"], current.etag); const updated = { ...structuredClone(requestBody), etag: `etag-${updateCalls + 1}` }; events.set(eventId, updated); return { data: updated }; },
-    async delete({ eventId }) { events.delete(eventId); return { data: {} }; },
+    async update({ eventId, requestBody, sendUpdates, conferenceDataVersion }, options) { updateCalls++; const current = events.get(eventId); assert.equal(options?.headers?.["If-Match"], current.etag); operations.push({ kind: "update", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); const updated = { ...structuredClone(requestBody), etag: `etag-${updateCalls + 1}` }; if (requestBody.conferenceData?.createRequest) withConference(updated, requestBody.conferenceData.createRequest); else if (requestBody.conferenceData && Object.keys(requestBody.conferenceData).length === 0) { updated.conferenceData = null; updated.hangoutLink = null; } events.set(eventId, updated); return { data: structuredClone(updated) }; },
+    async delete({ eventId, sendUpdates }) { operations.push({ kind: "delete", sendUpdates }); events.delete(eventId); return { data: {} }; },
   } };
   class OAuth2 { setCredentials(value) { this.credentials = value; } }
   const google = { auth: { OAuth2 }, calendar: () => calendar };
   const calendarModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
   const service = load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": calendarModel }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback" } });
-  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get listArgs() { return listArgs; } };
+  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, operations, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get listArgs() { return listArgs; }, set conferenceStatus(value) { conferenceStatus = value; } };
 }
 
-const row = (org = "org-1") => ({ id: "apt-1", organisation_id: org, title: "Planning", starts_at: "2026-10-25T10:00:00Z", ends_at: "2026-10-25T10:30:00Z", start_date: null, end_date: null, timezone: "Europe/London", all_day: false, location: "London", meeting_url: "https://meet.google.com/abc-defg-hij", notes: "Discuss plan", status: "confirmed", google_calendar_sync_enabled: false, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null });
+const row = (org = "org-1") => ({ id: "apt-1", organisation_id: org, title: "Planning", starts_at: "2026-10-25T10:00:00Z", ends_at: "2026-10-25T10:30:00Z", start_date: null, end_date: null, timezone: "Europe/London", all_day: false, location: "London", meeting_url: "https://calls.example/existing", notes: "Discuss plan", status: "confirmed", google_calendar_sync_enabled: false, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null, google_meet_enabled: false, google_meet_request_id: null, google_meet_url: null, google_calendar_attendee_email: null });
 
 test("native events are a read-only Calendar projection with recurring occurrences expanded", async () => {
   const h = calendarHarness();
@@ -86,6 +96,146 @@ test("Root mirror retries reuse one deterministic event and edits update that ex
   await h.service.cancelRootMirror(root.organisation_id, h.db.appointments.get(root.id));
   assert.equal(h.events.size, 0, "only the stored Root-owned mirror is cancelled");
 });
+
+test("Google Meet is confirmed on the deterministic event before an explicitly requested attendee is invited", async () => {
+  const h = calendarHarness(), appointment = { ...row(), google_meet_enabled: true, google_calendar_attendee_email: "sam@example.com" };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+
+  const result = await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const stored = h.db.appointments.get(appointment.id), eventId = h.googleEventId(appointment.organisation_id, appointment.id), event = h.events.get(eventId);
+  assert.equal(result.googleMeetPending, false);
+  assert.equal(result.googleMeetUrl, "https://meet.google.com/abc-defg-hij");
+  assert.equal(stored.google_meet_request_id, h.operations[0].requestId);
+  assert.equal(stored.google_meet_url, "https://meet.google.com/abc-defg-hij");
+  assert.equal(h.operations[0].kind, "insert");
+  assert.equal(h.operations[0].conferenceDataVersion, 1);
+  assert.equal(h.operations[0].sendUpdates, "none", "event creation does not invite before Meet is confirmed");
+  assert.equal(h.operations[0].requestBody.attendees, undefined);
+  assert.equal(h.operations[1].kind, "update");
+  assert.equal(h.operations[1].conferenceDataVersion, 1);
+  assert.equal(h.operations[1].sendUpdates, "all");
+  assert.deepEqual(eventAttendees(event), ["sam@example.com"]);
+  assert.equal(event.conferenceData.createRequest.requestId, stored.google_meet_request_id);
+  assert.equal(event.description, "Discuss plan\n\nMeeting link: https://calls.example/existing", "the existing meeting_url is preserved as separate event content");
+});
+
+test("Meet pending state sends no invitation and later confirmation reuses the request and event", async () => {
+  const h = calendarHarness({ conferenceStatus: "pending" }), appointment = { ...row(), google_meet_enabled: true, google_calendar_attendee_email: "sam@example.com" };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+
+  const pending = await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const savedPending = h.db.appointments.get(appointment.id), eventId = savedPending.google_calendar_event_id;
+  assert.equal(pending.googleMeetPending, true);
+  assert.equal(savedPending.google_meet_url, null);
+  assert.ok(savedPending.google_meet_request_id);
+  assert.equal(h.operations.length, 1);
+  assert.equal(h.operations[0].sendUpdates, "none");
+  assert.equal(h.events.get(eventId).attendees, undefined);
+
+  const event = h.events.get(eventId);
+  event.conferenceData.createRequest.status.statusCode = "success";
+  event.conferenceData.conferenceSolution = { key: { type: "hangoutsMeet" } };
+  event.conferenceData.entryPoints = [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }];
+  event.hangoutLink = "https://meet.google.com/abc-defg-hij";
+  const confirmed = await h.service.syncRootAppointment(appointment.organisation_id, savedPending);
+  assert.equal(confirmed.googleMeetPending, false);
+  assert.equal(confirmed.googleMeetUrl, "https://meet.google.com/abc-defg-hij");
+  assert.equal(h.events.size, 1);
+  assert.equal(h.operations[1].kind, "update");
+  assert.equal(h.operations[1].requestBody.id, eventId);
+  assert.equal(h.operations[1].requestBody.conferenceData.createRequest.requestId, savedPending.google_meet_request_id);
+  assert.deepEqual(eventAttendees(h.events.get(eventId)), ["sam@example.com"]);
+  assert.equal(h.operations[1].sendUpdates, "all");
+});
+
+test("a Meet-shaped link is not stored while Google's conference request is still pending", async () => {
+  const h = calendarHarness({ conferenceStatus: "pending" }), appointment = { ...row(), google_meet_enabled: true };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+  const result = await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const event = h.events.get(h.googleEventId(appointment.organisation_id, appointment.id));
+  event.hangoutLink = "https://meet.google.com/abc-defg-hij";
+  event.conferenceData.conferenceSolution = { key: { type: "hangoutsMeet" } };
+  const next = await h.service.syncRootAppointment(appointment.organisation_id, h.db.appointments.get(appointment.id));
+  assert.equal(result.googleMeetPending, true);
+  assert.equal(next.googleMeetPending, true);
+  assert.equal(next.googleMeetUrl, null);
+  assert.equal(h.db.appointments.get(appointment.id).google_meet_url, null);
+  assert.equal(h.operations.length, 1, "pending conference is not replaced by a second request");
+});
+
+test("lost Meet insert response retries the same request ID and does not duplicate the event or conference", async () => {
+  const h = calendarHarness({ loseFirstInsertResponse: true }), appointment = { ...row(), google_meet_enabled: true };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+
+  await assert.rejects(h.service.syncRootAppointment(appointment.organisation_id, appointment), /retry is safe/);
+  const requestId = h.db.appointments.get(appointment.id).google_meet_request_id;
+  assert.ok(requestId);
+  const result = await h.service.syncRootAppointment(appointment.organisation_id, h.db.appointments.get(appointment.id));
+  assert.equal(result.googleMeetPending, false);
+  assert.equal(h.operations[0].requestId, requestId);
+  assert.equal(h.operations[1].kind, "insert");
+  assert.equal(h.operations[1].requestId, requestId);
+  assert.equal(h.events.size, 1);
+  assert.equal(h.db.appointments.get(appointment.id).google_calendar_event_id, h.googleEventId(appointment.organisation_id, appointment.id));
+  assert.equal(h.db.appointments.get(appointment.id).google_meet_request_id, requestId);
+});
+
+test("rescheduling and attendee changes update the same Root event and retain its Meet request identity", async () => {
+  const h = calendarHarness(), appointment = { ...row(), google_meet_enabled: true, google_calendar_attendee_email: "sam@example.com" };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+  await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const before = h.db.appointments.get(appointment.id), requestId = before.google_meet_request_id, eventId = before.google_calendar_event_id;
+  const updated = { ...before, starts_at: "2026-10-26T12:00:00Z", ends_at: "2026-10-26T12:45:00Z", google_calendar_attendee_email: "alex@example.com" };
+  await h.service.syncRootAppointment(appointment.organisation_id, updated);
+  const event = h.events.get(eventId);
+  assert.equal(h.events.size, 1);
+  assert.equal(h.insertCalls, 1);
+  assert.equal(h.updateCalls, 2);
+  assert.equal(event.id, eventId);
+  assert.equal(event.start.dateTime, updated.starts_at);
+  assert.equal(event.conferenceData.createRequest.requestId, requestId);
+  assert.equal(h.db.appointments.get(appointment.id).google_meet_request_id, requestId);
+  assert.equal(h.db.appointments.get(appointment.id).google_meet_url, "https://meet.google.com/abc-defg-hij");
+  assert.deepEqual(eventAttendees(event), ["alex@example.com"]);
+  assert.equal(h.operations[2].sendUpdates, "all", "a changed attendee is explicitly notified on the same event");
+});
+
+test("a stored email without explicit invitation intent never becomes a Calendar attendee", async () => {
+  const h = calendarHarness(), appointment = { ...row(), google_calendar_attendee_email: null };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+  await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const event = h.events.get(h.googleEventId(appointment.organisation_id, appointment.id));
+  assert.deepEqual(eventAttendees(event), []);
+  assert.equal(h.operations[0].sendUpdates, "none");
+});
+
+test("disabling a confirmed Meet removes that conference before a later request receives a new identity", async () => {
+  const h = calendarHarness(), appointment = { ...row(), google_meet_enabled: true };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+  await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+  const confirmed = h.db.appointments.get(appointment.id), firstRequest = confirmed.google_meet_request_id, eventId = confirmed.google_calendar_event_id;
+  await h.service.syncRootAppointment(appointment.organisation_id, { ...confirmed, google_meet_enabled: false });
+  const cleared = h.db.appointments.get(appointment.id);
+  assert.equal(cleared.google_meet_request_id, null);
+  assert.equal(cleared.google_meet_url, null);
+  assert.equal(h.events.get(eventId).conferenceData, null);
+
+  await h.service.syncRootAppointment(appointment.organisation_id, { ...cleared, google_meet_enabled: true });
+  const secondRequest = h.db.appointments.get(appointment.id).google_meet_request_id;
+  assert.ok(secondRequest);
+  assert.notEqual(secondRequest, firstRequest, "a deliberate new conference request gets a fresh identity only after the old conference is removed");
+  assert.equal(h.events.size, 1);
+  assert.equal([...h.events.keys()][0], eventId);
+});
+
+function eventAttendees(event) { return (event.attendees || []).map(item => item.email.toLowerCase()).sort(); }
 
 test("Root tenant mismatch fails closed before any Calendar write", async () => {
   const h = calendarHarness(), wrong = row("org-2");
@@ -140,7 +290,7 @@ test("Root create remains saved when the optional Google API call fails", async 
   const route = load("app/api/diary/appointments/route.ts", {
     "next/server": { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200 }) } },
     "@/lib/tenantRoute.server": { withTenantRoute: handler => handler },
-    "@/lib/diaryAppointments.server": { DiaryAppointmentError: class DiaryAppointmentError extends Error { constructor(message, status) { super(message); this.status = status; } }, readDiaryAppointments: async () => [], saveDiaryAppointment: async () => { saved = true; return row(); } },
+    "@/lib/diaryAppointments.server": { DiaryAppointmentError: class DiaryAppointmentError extends Error { constructor(message, status) { super(message); this.status = status; } }, readDiaryAppointments: async () => [], saveDiaryAppointment: async () => { saved = true; return row(); }, publicDiaryAppointment: value => value },
     "@/lib/diaryGoogleCalendar.server": { syncRootAppointment: async () => { syncCalls++; throw new Error("provider details must not escape"); } },
   });
   const rootOnly = await route.POST({ json: async () => ({ title: "Root only" }) }, { organisationId: "org-1" });

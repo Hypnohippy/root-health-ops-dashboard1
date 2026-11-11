@@ -49,16 +49,22 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
       insert into relationship_tasks values ('${randomUUID()}','${org}','Existing task');`);
     const migration = fs.readFileSync("supabase/migrations/20261109090000_diary_appointments.sql", "utf8");
     await db.exec(migration);
-    const call = async ({ action, id = null, revision = null, relationshipId = null, title = "Auriel Wetherall call", start = "2026-11-10T10:00:00Z", end = "2026-11-10T10:30:00Z", status = "tentative", actorId = actor, tenant = org } = {}) => (await db.query(
-      "select save_appointment($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null,'Europe/London',false,null,null,null,$10) as row",
-      [tenant, actorId, action, id, revision, relationshipId, title, start, end, status],
+    const oldAppointment = (await db.query("select save_appointment($1,$2,'create',null,null,null,'Before Meet migration','2026-11-10T08:00:00Z','2026-11-10T08:30:00Z',null,null,'Europe/London',false,null,'https://calls.example/legacy',null,'confirmed') as row", [org, actor])).rows[0].row;
+    await db.exec(fs.readFileSync("supabase/migrations/20261111120000_diary_google_meet_invitations.sql", "utf8"));
+    const oldState = (await db.query("select google_meet_enabled,google_meet_request_id,google_meet_url,google_calendar_attendee_email,meeting_url from appointments where id=$1", [oldAppointment.id])).rows[0];
+    assert.deepEqual(oldState, { google_meet_enabled: false, google_meet_request_id: null, google_meet_url: null, google_calendar_attendee_email: null, meeting_url: "https://calls.example/legacy" }, "existing appointments default safely without backfilling or changing meeting_url");
+    const call = async ({ action, id, revision, relationshipId = null, title = "Auriel Wetherall call", start = "2026-11-10T10:00:00Z", end = "2026-11-10T10:30:00Z", status = "tentative", actorId = actor, tenant = org, googleMeetEnabled = false, attendeeEmail = null } = {}) => (await db.query(
+      "select save_appointment($1,$2,$3,$4,$5,$6,$7,$8,$9,null,null,'Europe/London',false,null,null,null,$10,$11,$12) as row",
+      [tenant, actorId, action, id ?? null, revision ?? null, relationshipId, title, start, end, status, googleMeetEnabled, attendeeEmail],
     )).rows[0].row;
-    const created = await call({ action: "create", relationshipId: relationship, status: "confirmed" });
+    const created = await call({ action: "create", relationshipId: relationship, status: "confirmed", googleMeetEnabled: true, attendeeEmail: "sam@example.com" });
     assert.deepEqual(Object.keys(created).sort(), [
       "id", "organisation_id", "owner_user_id", "relationship_id", "title", "starts_at", "ends_at", "start_date", "end_date",
       "timezone", "all_day", "location", "meeting_url", "notes", "status", "source", "revision", "created_at", "updated_at", "cancelled_at",
+      "google_meet_enabled", "google_meet_request_id", "google_meet_url", "google_calendar_attendee_email",
     ].sort(), "JSONB RPC result contains every DiaryAppointmentRow field");
     assert.equal(created.owner_user_id, actor); assert.equal(created.source, "relationship"); assert.equal(created.status, "confirmed"); assert.equal(created.revision, 1);
+    assert.equal(created.google_meet_enabled, true); assert.equal(created.google_calendar_attendee_email, "sam@example.com");
     const edited = await call({ action: "update", id: created.id, revision: 1, title: "Auriel follow-up", start: "2026-11-12T11:00:00Z", end: "2026-11-12T11:45:00Z", status: "confirmed" });
     assert.equal(edited.title, "Auriel follow-up"); assert.equal(new Date(edited.starts_at).toISOString(), "2026-11-12T11:00:00.000Z"); assert.equal(edited.revision, 2);
     const rescheduled = await call({ action: "update", id: created.id, revision: 2, title: "Auriel follow-up", start: "2026-11-13T14:00:00Z", end: "2026-11-13T14:45:00Z", status: "confirmed" });
@@ -78,7 +84,7 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
     const completed = await call({ action: "update", id: completedCandidate.id, revision: 1, status: "completed" });
     assert.equal(completed.status, "completed"); assert.equal(completed.revision, 2);
     await assert.rejects(call({ action: "update", id: completed.id, revision: 2 }), error => error.message.includes("appointment_not_editable"));
-    assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [org])).rows[0].n, 2, "cancelled appointment remains stored alongside the completed appointment");
+    assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [org])).rows[0].n, 3, "cancelled and pre-migration appointments remain stored alongside the completed appointment");
     assert.equal((await db.query("select count(*)::int n from appointments where organisation_id=$1", [otherOrg])).rows[0].n, 1, "foreign appointment remains isolated in its tenant");
     assert.equal((await db.query("select count(*)::int n from growth_targets")).rows[0].n, 1, "existing meeting source is unchanged");
     assert.equal((await db.query("select count(*)::int n from relationship_tasks")).rows[0].n, 1, "existing task source is unchanged");
@@ -86,9 +92,13 @@ test("real SQL: current revisions update and reschedule; stale revisions fail; c
       has_table_privilege('authenticated','appointments','INSERT') user_write,
       has_table_privilege('service_role','appointments','SELECT') service_read,
       has_table_privilege('service_role','appointments','INSERT') service_direct_write,
+      has_column_privilege('service_role','public.appointments','google_meet_request_id','UPDATE') service_request_id_update,
+      has_column_privilege('service_role','public.appointments','google_meet_url','UPDATE') service_meet_url_update,
+      has_column_privilege('authenticated','public.appointments','google_meet_request_id','UPDATE') user_request_id_update,
+      has_column_privilege('authenticated','public.appointments','google_meet_url','UPDATE') user_meet_url_update,
       (select relrowsecurity from pg_class where relname='appointments') rls`)).rows[0];
-    assert.deepEqual(perms, { anon_read: false, user_write: false, service_read: true, service_direct_write: false, rls: true });
-    assert.equal((await db.query("select has_function_privilege('anon','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text)','EXECUTE') allowed")).rows[0].allowed, false);
+    assert.deepEqual(perms, { anon_read: false, user_write: false, service_read: true, service_direct_write: false, service_request_id_update: true, service_meet_url_update: true, user_request_id_update: false, user_meet_url_update: false, rls: true });
+    assert.equal((await db.query("select has_function_privilege('anon','save_appointment(uuid,uuid,text,uuid,bigint,uuid,text,timestamptz,timestamptz,date,date,text,boolean,text,text,text,text,boolean,text)','EXECUTE') allowed")).rows[0].allowed, false);
   } finally { await db.close(); }
 });
 
@@ -111,6 +121,7 @@ test("appointment create route takes organisation and actor only from authentica
     "@/lib/diaryAppointments.server": {
       readDiaryAppointments: async () => [],
       saveDiaryAppointment: async (tenant, action, input) => { captured = { tenant, action, input }; return { id: "created", organisation_id: tenant.organisationId }; },
+      publicDiaryAppointment: row => row,
       DiaryAppointmentError: class extends Error {},
     },
     "@/lib/diaryGoogleCalendar.server": { syncRootAppointment: async () => {} },
@@ -129,4 +140,41 @@ test("server never accepts an unvalidated relationship ID or caller-supplied own
   assert.match(serviceSource, /p_org: tenant\.organisationId, p_actor: tenant\.userId/);
   assert.doesNotMatch(serviceSource, /input\.organisationId|input\.ownerUserId/);
   assert.match(routeSource, /withTenantRoute/);
+});
+
+test("save RPC persists only user-controlled Meet and invite choices and ignores forged server-managed fields", async () => {
+  let args;
+  const service = load("lib/diaryAppointments.server.ts", {
+    "@/lib/supabaseAdmin": { supabaseAdmin: { rpc: async (name, values) => { assert.equal(name, "save_appointment"); args = values; return { data: { id: "apt", organisation_id: org }, error: null }; } } },
+    "@/lib/relationshipWorkspace.server": {}, "@/lib/diaryAppointments": time, "@/lib/operationalIntelligence.server": {},
+  });
+  await service.saveDiaryAppointment({ organisationId: org, userId: actor, role: "owner" }, "create", {
+    title: "Meet and invite", startDate: "2026-11-12", startTime: "10:00", endDate: "2026-11-12", endTime: "10:30", timezone: "Europe/London",
+    googleMeetEnabled: true, inviteAttendee: true, googleCalendarAttendeeEmail: "Sam@example.com",
+    googleMeetRequestId: "forged-request", googleMeetUrl: "https://meet.google.com/not-root-generated",
+  });
+  assert.equal(args.p_google_meet_enabled, true);
+  assert.equal(args.p_google_calendar_attendee_email, "sam@example.com");
+  assert.equal(Object.hasOwn(args, "p_google_meet_request_id"), false);
+  assert.equal(Object.hasOwn(args, "p_google_meet_url"), false);
+  const publicRow = service.publicDiaryAppointment({ id: "apt", organisation_id: org, google_meet_request_id: "server-only", google_meet_url: "https://meet.google.com/abc-defg-hij" });
+  assert.equal(Object.hasOwn(publicRow, "google_meet_request_id"), false, "request identity remains server-only in API responses");
+  assert.equal(publicRow.google_meet_url, "https://meet.google.com/abc-defg-hij", "confirmed Meet URL is intentionally visible to the user");
+  assert.throws(() => time.parseAppointmentValues({ title: "Invite", startDate: "2026-11-12", startTime: "10:00", endDate: "2026-11-12", endTime: "10:30", timezone: "Europe/London", inviteAttendee: true, googleCalendarAttendeeEmail: "bad address" }), /valid attendee email/);
+  const noInvite = time.parseAppointmentValues({ title: "No invite", startDate: "2026-11-12", startTime: "10:00", endDate: "2026-11-12", endTime: "10:30", timezone: "Europe/London", inviteAttendee: false, googleCalendarAttendeeEmail: "sam@example.com" });
+  assert.equal(noInvite.googleCalendarAttendeeEmail, null, "email alone never authorizes a guest invite");
+});
+
+test("verified relationship email route scopes the lookup to authenticated tenant context", async () => {
+  let captured;
+  const route = load("app/api/diary/relationships/route.ts", {
+    "next/server": { NextResponse: { json: (body, init = {}) => ({ body, status: init.status || 200 }) } },
+    "@/lib/tenantRoute.server": { withTenantRoute: handler => (request, tenant) => handler(request, tenant) },
+    "@/lib/diaryAppointments.server": { searchDiaryRelationships: async () => [] },
+    "@/lib/operationalIntelligence.server": { verifiedRelationshipEmails: async (tenant, id) => { captured = { tenant, id }; return ["sam@example.com"]; } },
+  });
+  const response = await route.GET({ url: `https://app.test/api/diary/relationships?organisationId=${otherOrg}&relationshipId=workspace-1` }, { organisationId: org, userId: actor });
+  assert.deepEqual(captured, { tenant: { organisationId: org, userId: actor }, id: "workspace-1" });
+  assert.equal(JSON.stringify(response.body), JSON.stringify({ verifiedEmails: ["sam@example.com"] }));
+  assert.equal(response.status, 200);
 });

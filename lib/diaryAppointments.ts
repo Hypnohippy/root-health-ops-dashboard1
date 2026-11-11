@@ -11,12 +11,15 @@ export type AppointmentValues = {
   location: string | null;
   meetingUrl: string | null;
   notes: string | null;
+  googleMeetEnabled: boolean;
+  googleCalendarAttendeeEmail: string | null;
   status: Exclude<AppointmentStatus, "cancelled">;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const nullableText = (value: unknown, max: number, label: string): string | null => {
   if (value == null || value === "") return null;
   if (typeof value !== "string" || value.trim().length > max) throw new Error(`${label} is too long.`);
@@ -100,10 +103,17 @@ export function parseAppointmentValues(input: Record<string, unknown>): Appointm
   if (status !== "tentative" && status !== "confirmed" && status !== "completed") throw new Error("Choose a valid appointment status.");
   let meetingUrl = nullableText(input.meetingUrl, 2048, "Meeting link");
   if (meetingUrl) { try { const url = new URL(meetingUrl); if (!(["http:", "https:"].includes(url.protocol))) throw Error(); meetingUrl = url.toString(); } catch { throw new Error("Enter a valid https:// or http:// meeting link."); } }
+  const googleMeetEnabled = input.googleMeetEnabled === true;
+  const googleCalendarAttendeeEmail = input.inviteAttendee === true
+    ? nullableText(input.googleCalendarAttendeeEmail, 320, "Attendee email")?.toLowerCase() || null
+    : null;
+  if (input.inviteAttendee === true && (!googleCalendarAttendeeEmail || !EMAIL.test(googleCalendarAttendeeEmail))) {
+    throw new Error("Enter a valid attendee email address before sending an invitation.");
+  }
   return {
     relationshipId, title, startsAt, endsAt, startDate, endDate, timezone, allDay,
     location: nullableText(input.location, 500, "Location"), meetingUrl,
-    notes: nullableText(input.notes, 10000, "Notes"), status,
+    notes: nullableText(input.notes, 10000, "Notes"), googleMeetEnabled, googleCalendarAttendeeEmail, status,
   };
 }
 

@@ -30,6 +30,7 @@ export type DiaryAppointment = {
   status: "tentative" | "confirmed" | "completed" | "cancelled"; source: "ops_manual" | "relationship";
   revision: number; createdAt: string; updatedAt: string; cancelledAt: string | null;
   googleCalendarSyncEnabled?: boolean; googleCalendarMirrored?: boolean; googleCalendarSyncedAt?: string | null; googleCalendarSyncPending?: boolean;
+  googleMeetEnabled?: boolean; googleMeetUrl?: string | null; googleCalendarAttendeeEmail?: string | null;
   relationship: { id: string; person: string; company: string | null; href: string } | null;
 };
 export type DiaryGoogleCalendarEvent = {

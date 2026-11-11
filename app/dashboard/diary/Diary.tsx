@@ -31,6 +31,9 @@ function savedAppointment(record: Record<string, unknown>, previous: DiaryAppoin
     googleCalendarMirrored: Boolean(googleEventId),
     googleCalendarSyncedAt: value("googleCalendarSyncedAt", "google_calendar_synced_at", previous.googleCalendarSyncedAt) as string | null,
     googleCalendarSyncPending: value("googleCalendarSyncPending", "google_calendar_sync_pending", previous.googleCalendarSyncPending) === true,
+    googleMeetEnabled: value("googleMeetEnabled", "google_meet_enabled", previous.googleMeetEnabled) === true,
+    googleMeetUrl: value("googleMeetUrl", "google_meet_url", previous.googleMeetUrl) as string | null,
+    googleCalendarAttendeeEmail: value("googleCalendarAttendeeEmail", "google_calendar_attendee_email", previous.googleCalendarAttendeeEmail) as string | null,
     relationship: relationshipId === previous.relationship?.id ? previous.relationship : null,
   };
 }
@@ -79,6 +82,9 @@ function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmen
       <time className="diary-appointment-time" dateTime={entry.appointment.startsAt || entry.appointment.startDate || undefined}>{appointmentTime(entry.appointment)}</time>
       <strong className="diary-appointment-title">{entry.appointment.title}</strong>{entry.appointment.relationship && <span>{entry.appointment.relationship.person}{entry.appointment.relationship.company ? ` · ${entry.appointment.relationship.company}` : ""}</span>}
       {entry.appointment.location && <span>{entry.appointment.location}</span>}{entry.appointment.meetingUrl && <a href={entry.appointment.meetingUrl} target="_blank" rel="noreferrer">Open meeting link</a>}
+      {entry.appointment.googleMeetUrl && <a href={entry.appointment.googleMeetUrl} target="_blank" rel="noreferrer">Open Google Meet · {entry.appointment.googleMeetUrl.replace(/^https:\/\//, "")}</a>}
+      {entry.appointment.googleMeetEnabled && !entry.appointment.googleMeetUrl && <span className="diary-status">Google Meet is being prepared</span>}
+      {entry.appointment.googleCalendarAttendeeEmail && <span className="diary-status">Invited · {entry.appointment.googleCalendarAttendeeEmail}</span>}
       {entry.appointment.relationship && <a href={entry.appointment.relationship.href}>Open relationship</a>}
       <span className="diary-status">{entry.appointment.status[0].toUpperCase() + entry.appointment.status.slice(1)} · Revision {entry.appointment.revision}</span>
       {entry.appointment.googleCalendarSyncEnabled && <span className="diary-status">Google Calendar · {entry.appointment.googleCalendarSyncPending ? "Sync pending" : entry.appointment.googleCalendarSyncedAt ? "Synced" : "Sync enabled"}</span>}
@@ -198,7 +204,7 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
   }
   async function retryGoogleSync(appointment: DiaryAppointment) {
     const response = await fetch(`/api/diary/appointments/${encodeURIComponent(appointment.id)}/google-sync?organisationId=${encodeURIComponent(organisationId)}`, { method: "POST" });
-    const result = await response.json(); showNotice(response.ok ? "Google Calendar sync completed." : result.error || "Google Calendar sync remains pending."); await refresh({ preserveNotice: true });
+    const result = await response.json(); showNotice(response.ok ? result.googleMeetPending ? "Google Meet is still being prepared. No invitation has been sent yet." : "Google Calendar sync completed." : result.error || "Google Calendar sync remains pending."); await refresh({ preserveNotice: true });
   }
   function edit(appointment: DiaryAppointment) { setEditing(appointment); setFormOpen(true); }
   function requestCancel(appointment: DiaryAppointment, trigger: HTMLButtonElement) { cancelTrigger.current = trigger; setCancellationError(""); setCancelling(appointment); }
@@ -244,6 +250,6 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
     {view === "Month" && <><h2>{new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "Europe/London" }).format(new Date(day + "T12:00:00Z"))}</h2><div className="diary-month" role="group" aria-label="Choose a diary date">{monthDays.map(date => { const appointmentCount = appointments.filter(a => a.status !== "cancelled" && appointmentOccursOnDate(a, date)).length + calendarEvents.filter(event => googleEventOccursOnDate(event, date)).length; const workCount = snapshot.items.filter(item => diaryDay(item.at) === date).length; return <button key={date} aria-pressed={date === day} aria-label={`${diaryLabel(date)}: ${appointmentCount} appointment${appointmentCount === 1 ? "" : "s"}, ${workCount} operational item${workCount === 1 ? "" : "s"}`} onClick={() => setDay(date)}><strong>{Number(date.slice(-2))}</strong><span className="diary-month-counts"><span><b>{appointmentCount}</b> apt</span><span><b>{workCount}</b> work</span></span></button>; })}</div><h2 className="diary-selected-date">{diaryLabel(day)}</h2><AppointmentWorkLanes appointmentGroups={[{ heading: "Appointments", entries: selectedDate }]} workGroups={[{ heading: "Operational work", entries: workForDate(day) }]} onEdit={edit} onCancel={requestCancel} onRetry={retryGoogleSync}/></>}
     {appointments.some(a => a.status === "cancelled") && <details className="diary-cancelled"><summary>Cancelled appointments ({appointments.filter(a => a.status === "cancelled").length})</summary><Agenda entries={appointmentList(appointments.filter(a => a.status === "cancelled"))} onEdit={() => undefined} onCancel={() => undefined} emptyLabel="No cancelled appointments."/></details>}
     {!!groups.undated.length && <details><summary>Undated dependencies / manual history ({groups.undated.length})</summary><Agenda entries={workList(groups.undated)} onEdit={edit} onCancel={requestCancel} emptyLabel="No undated operational work."/></details>}
-    <footer>Google-native events are read-only projections; Root appointments remain authoritative. Only appointments explicitly marked for Calendar sync create a Root-owned Google event. No attendees are invited automatically.</footer>
+    <footer>Google-native events are read-only projections; Root appointments remain authoritative. Only appointments explicitly marked for Calendar sync create a Root-owned Google event. Attendees are invited only when explicitly selected.</footer>
   </main>;
 }
