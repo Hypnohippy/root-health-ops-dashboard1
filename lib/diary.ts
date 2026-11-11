@@ -24,6 +24,22 @@ export type DiaryItem = {
 
 };
 export type DiarySnapshot = { asOf: string; today: string; timezone: "Europe/London"; items: DiaryItem[]; summary?:{actionableFollowups:number;futureFollowups:number;suppressedFollowups:number;waiting:number;repliesNeedingResponse:number;meetingsThisWeek:number;overdueTasks:number;tasksToday:number;meetingsToday:number}; replyHref?:string };
+export type DiaryAppointment = {
+  id: string; title: string; startsAt: string | null; endsAt: string | null; startDate: string | null; endDate: string | null;
+  timezone: string; allDay: boolean; location: string | null; meetingUrl: string | null; notes: string | null;
+  status: "tentative" | "confirmed" | "completed" | "cancelled"; source: "ops_manual" | "relationship";
+  revision: number; createdAt: string; updatedAt: string; cancelledAt: string | null;
+  googleCalendarSyncEnabled?: boolean; googleCalendarMirrored?: boolean; googleCalendarSyncedAt?: string | null; googleCalendarSyncPending?: boolean;
+  relationship: { id: string; person: string; company: string | null; href: string } | null;
+};
+export type DiaryGoogleCalendarEvent = {
+  id: string; calendarId: string; title: string; startsAt: string | null; endsAt: string | null; startDate: string | null; endDate: string | null;
+  timezone: string; allDay: boolean; location: string | null; meetingUrl: string | null; source: "google_calendar";
+};
+export type DiarySnapshotWithAppointments = DiarySnapshot & {
+  appointments: DiaryAppointment[]; googleCalendarEvents: DiaryGoogleCalendarEvent[];
+  googleCalendar: { connected: boolean; email: string | null; unavailable: boolean };
+};
 export type DiaryRow = Record<string, unknown>;
 export function diaryDay(value: string|null): string {
   if(!value)return "";
