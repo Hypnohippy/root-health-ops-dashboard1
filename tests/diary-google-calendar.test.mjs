@@ -54,8 +54,9 @@ function calendarHarness({ loseFirstInsertResponse = false } = {}) {
   } };
   class OAuth2 { setCredentials(value) { this.credentials = value; } }
   const google = { auth: { OAuth2 }, calendar: () => calendar };
-  const service = load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") }) }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback" } });
-  return { db, events, calendar, service, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get listArgs() { return listArgs; } };
+  const calendarModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
+  const service = load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": calendarModel }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback" } });
+  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get listArgs() { return listArgs; } };
 }
 
 const row = (org = "org-1") => ({ id: "apt-1", organisation_id: org, title: "Planning", starts_at: "2026-10-25T10:00:00Z", ends_at: "2026-10-25T10:30:00Z", start_date: null, end_date: null, timezone: "Europe/London", all_day: false, location: "London", meeting_url: "https://meet.google.com/abc-defg-hij", notes: "Discuss plan", status: "confirmed", google_calendar_sync_enabled: false, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null });
@@ -93,10 +94,45 @@ test("Root tenant mismatch fails closed before any Calendar write", async () => 
 });
 
 test("cancelling a Root appointment without a created mirror never calls Google", async () => {
-  const h = calendarHarness(), appointment = { ...row(), google_calendar_sync_enabled: true, google_calendar_sync_pending: true };
+  const h = calendarHarness(), appointment = { ...row(), google_calendar_sync_enabled: false, google_calendar_sync_pending: false };
   h.db.appointments.set(appointment.id, structuredClone(appointment));
   await h.service.cancelRootMirror(appointment.organisation_id, appointment);
   assert.equal(h.events.size, 0); assert.equal(h.db.appointments.get(appointment.id).google_calendar_sync_pending, false);
+});
+
+test("cancellation recovers and deletes a deterministic Root mirror after Google accepted an insert but its response was lost", async () => {
+  const h = calendarHarness({ loseFirstInsertResponse: true }), appointment = row();h.db.appointments.set(appointment.id,structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({organisationId:appointment.organisation_id,ownerUserId:"user-1",accountId:"google-1",email:"david@example.com",refreshToken:"server-only-refresh"});
+  await assert.rejects(h.service.syncRootAppointment(appointment.organisation_id,appointment),/retry is safe/);
+  const uncertain=h.db.appointments.get(appointment.id);assert.equal(uncertain.google_calendar_event_id,null);assert.equal(uncertain.google_calendar_sync_pending,true);assert.equal(h.events.size,1);
+  await h.service.cancelRootMirror(appointment.organisation_id,uncertain);
+  assert.equal(h.events.size,0);assert.equal(h.db.appointments.get(appointment.id).google_calendar_sync_pending,false);assert.equal(h.db.appointments.get(appointment.id).google_calendar_event_id,h.googleEventId(appointment.organisation_id,appointment.id));
+});
+
+test("uncertain-create cancellation completes when the deterministic Google event is absent", async () => {
+  const h=calendarHarness(),appointment={...row(),google_calendar_sync_enabled:true,google_calendar_sync_pending:true};h.db.appointments.set(appointment.id,structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({organisationId:appointment.organisation_id,ownerUserId:"user-1",accountId:"google-1",email:"david@example.com",refreshToken:"server-only-refresh"});
+  await h.service.cancelRootMirror(appointment.organisation_id,appointment);
+  assert.equal(h.events.size,0);assert.equal(h.db.appointments.get(appointment.id).google_calendar_sync_pending,false);
+});
+
+test("uncertain-create cancellation fails closed and leaves an ownership-mismatched deterministic event untouched", async () => {
+  const h=calendarHarness(),appointment={...row(),google_calendar_sync_enabled:true,google_calendar_sync_pending:true},eventId=h.googleEventId(appointment.organisation_id,appointment.id);h.db.appointments.set(appointment.id,structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({organisationId:appointment.organisation_id,ownerUserId:"user-1",accountId:"google-1",email:"david@example.com",refreshToken:"server-only-refresh"});
+  h.events.set(eventId,{id:eventId,summary:"Not Root's event",etag:"etag-1",extendedProperties:{private:{rootManaged:"true",rootOrganisationId:appointment.organisation_id,rootAppointmentId:"another-appointment"}}});
+  await assert.rejects(h.service.cancelRootMirror(appointment.organisation_id,appointment),/not verifiably owned/);
+  assert.equal(h.events.size,1);assert.equal(h.db.appointments.get(appointment.id).google_calendar_sync_pending,true);
+});
+
+test("409 recovery reconciles a lost insert response to the current rescheduled Root appointment before marking synced",async()=>{
+  const h=calendarHarness({loseFirstInsertResponse:true}),initial=row();h.db.appointments.set(initial.id,structuredClone(initial));
+  await h.service.storeGoogleCalendarConnection({organisationId:initial.organisation_id,ownerUserId:"user-1",accountId:"google-1",email:"david@example.com",refreshToken:"server-only-refresh"});
+  await assert.rejects(h.service.syncRootAppointment(initial.organisation_id,initial),/retry is safe/);
+  const current={...initial,title:"Planning moved",starts_at:"2026-10-27T15:00:00Z",ends_at:"2026-10-27T15:45:00Z",timezone:"Europe/London",location:"Manchester",notes:"Updated plan"};
+  await h.service.syncRootAppointment(current.organisation_id,current);
+  const id=h.googleEventId(current.organisation_id,current.id),event=h.events.get(id),stored=h.db.appointments.get(current.id);
+  assert.equal(h.updateCalls,1);assert.equal(event.summary,"Planning moved");assert.equal(event.start.dateTime,current.starts_at);assert.equal(event.end.dateTime,current.ends_at);assert.equal(event.start.timeZone,current.timezone);assert.equal(event.location,current.location);assert.match(event.description,/Updated plan/);
+  assert.equal(stored.google_calendar_event_id,id);assert.equal(stored.google_calendar_etag,event.etag);assert.equal(stored.google_calendar_sync_pending,false);assert.ok(stored.google_calendar_synced_at);
 });
 
 test("Root create remains saved when the optional Google API call fails", async () => {
