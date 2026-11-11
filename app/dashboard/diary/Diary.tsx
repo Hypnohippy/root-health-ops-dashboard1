@@ -8,6 +8,32 @@ import "./diary.css";
 type Prefill = { id?: string; person?: string; company?: string | null };
 type Snapshot = DiarySnapshot & { appointments?: DiaryAppointment[]; googleCalendarEvents?: DiaryGoogleCalendarEvent[]; googleCalendar?: { connected: boolean; email: string | null; unavailable: boolean } };
 type AgendaEntry = { kind: "ops"; item: DiaryItem } | { kind: "appointment"; appointment: DiaryAppointment } | { kind: "google"; event: DiaryGoogleCalendarEvent };
+function savedAppointment(record: Record<string, unknown>, previous: DiaryAppointment): DiaryAppointment {
+  const value = (camel: string, snake: string, fallback: unknown) => Object.prototype.hasOwnProperty.call(record, snake) ? record[snake] : Object.prototype.hasOwnProperty.call(record, camel) ? record[camel] : fallback;
+  const relationshipId = value("relationshipId", "relationship_id", previous.relationship?.id ?? null);
+  const googleEventId = value("googleCalendarEventId", "google_calendar_event_id", previous.googleCalendarMirrored ? "mirror" : null);
+  return {
+    ...previous,
+    id: String(record.id ?? previous.id), title: String(record.title ?? previous.title),
+    startsAt: value("startsAt", "starts_at", previous.startsAt) as string | null,
+    endsAt: value("endsAt", "ends_at", previous.endsAt) as string | null,
+    startDate: value("startDate", "start_date", previous.startDate) as string | null,
+    endDate: value("endDate", "end_date", previous.endDate) as string | null,
+    timezone: String(value("timezone", "timezone", previous.timezone)), allDay: value("allDay", "all_day", previous.allDay) === true,
+    location: value("location", "location", previous.location) as string | null,
+    meetingUrl: value("meetingUrl", "meeting_url", previous.meetingUrl) as string | null,
+    notes: value("notes", "notes", previous.notes) as string | null,
+    status: value("status", "status", previous.status) as DiaryAppointment["status"],
+    revision: Number(value("revision", "revision", previous.revision)),
+    updatedAt: String(value("updatedAt", "updated_at", previous.updatedAt)),
+    cancelledAt: value("cancelledAt", "cancelled_at", previous.cancelledAt) as string | null,
+    googleCalendarSyncEnabled: value("googleCalendarSyncEnabled", "google_calendar_sync_enabled", previous.googleCalendarSyncEnabled) === true,
+    googleCalendarMirrored: Boolean(googleEventId),
+    googleCalendarSyncedAt: value("googleCalendarSyncedAt", "google_calendar_synced_at", previous.googleCalendarSyncedAt) as string | null,
+    googleCalendarSyncPending: value("googleCalendarSyncPending", "google_calendar_sync_pending", previous.googleCalendarSyncPending) === true,
+    relationship: relationshipId === previous.relationship?.id ? previous.relationship : null,
+  };
+}
 const active = (appointment: DiaryAppointment) => appointment.status !== "cancelled";
 function appointmentTime(appointment: DiaryAppointment) {
   if (appointment.allDay) return appointment.startDate === appointment.endDate ? "All day" : `All day · ${appointment.startDate}`;
@@ -41,7 +67,7 @@ function eventTime(event: DiaryGoogleCalendarEvent) {
   const fmt = (value: string) => new Intl.DateTimeFormat("en-GB", { timeZone: event.timezone, hour: "2-digit", minute: "2-digit" }).format(new Date(value));
   return `${fmt(event.startsAt)}–${fmt(event.endsAt)} · ${event.timezone}`;
 }
-function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmentDate = false }: { entries: AgendaEntry[]; onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment) => void; onRetry?: (appointment: DiaryAppointment) => void; emptyLabel: string; showAppointmentDate?: boolean }) {
+function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmentDate = false }: { entries: AgendaEntry[]; onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment, trigger: HTMLButtonElement) => void; onRetry?: (appointment: DiaryAppointment) => void; emptyLabel: string; showAppointmentDate?: boolean }) {
   if (!entries.length) return <p className="diary-empty">{emptyLabel}</p>;
   return <ul className="diary-items">{entries.map(entry => entry.kind === "ops" ? <li key={`ops:${entry.item.id}`} className="diary-operational-item"><a href={entry.item.href}>
     <span className="diary-kind">{entry.item.type} · {entry.item.workspace}</span><strong>{entry.item.title}</strong>{entry.item.company && <span>{entry.item.company}</span>}
@@ -57,7 +83,7 @@ function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmen
       <span className="diary-status">{entry.appointment.status[0].toUpperCase() + entry.appointment.status.slice(1)} · Revision {entry.appointment.revision}</span>
       {entry.appointment.googleCalendarSyncEnabled && <span className="diary-status">Google Calendar · {entry.appointment.googleCalendarSyncPending ? "Sync pending" : entry.appointment.googleCalendarSyncedAt ? "Synced" : "Sync enabled"}</span>}
       {entry.appointment.googleCalendarSyncPending && entry.appointment.status !== "cancelled" && <button type="button" onClick={() => onRetry?.(entry.appointment)}>Retry Google Calendar sync</button>}
-      {entry.appointment.status !== "completed" && entry.appointment.status !== "cancelled" && <div className="diary-appointment-actions"><button type="button" onClick={() => onEdit(entry.appointment)}>Edit / reschedule</button><button type="button" onClick={() => onCancel(entry.appointment)}>Cancel appointment</button></div>}
+      {entry.appointment.status !== "completed" && entry.appointment.status !== "cancelled" && <div className="diary-appointment-actions"><button type="button" onClick={() => onEdit(entry.appointment)}>Edit / reschedule</button><button type="button" onClick={event => onCancel(entry.appointment, event.currentTarget)}>Cancel appointment</button></div>}
     </article>
   </li> : <li key={`google:${entry.event.id}`} className="diary-appointment diary-google-calendar-event">
     <article><span className="diary-kind">Google Calendar · Read only</span>{showAppointmentDate && (() => { const date = appointmentDateLabel(entry.event.allDay, entry.event.startDate, entry.event.startsAt, entry.event.timezone); return date && <time className="diary-appointment-date" dateTime={date.date}>{date.label}</time>; })()}<time className="diary-appointment-time" dateTime={entry.event.startsAt || entry.event.startDate || undefined}>{eventTime(entry.event)}</time>
@@ -68,7 +94,7 @@ function Agenda({ entries, onEdit, onCancel, onRetry, emptyLabel, showAppointmen
 type LaneGroup = { heading: string; entries: AgendaEntry[]; showAppointmentDate?: boolean };
 function AppointmentWorkLanes({ appointmentGroups, workGroups, onEdit, onCancel, onRetry, className }: {
   appointmentGroups: LaneGroup[]; workGroups: LaneGroup[];
-  onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment) => void; onRetry?: (appointment: DiaryAppointment) => void;
+  onEdit: (appointment: DiaryAppointment) => void; onCancel: (appointment: DiaryAppointment, trigger: HTMLButtonElement) => void; onRetry?: (appointment: DiaryAppointment) => void;
   className?: string;
 }) {
   const appointmentCount = appointmentGroups.reduce((count, group) => count + group.entries.length, 0);
@@ -93,8 +119,9 @@ function AppointmentWorkLanes({ appointmentGroups, workGroups, onEdit, onCancel,
 
 export default function Diary({ organisationId, initial, openCreate = false, prefill = {} }: { organisationId: string; initial: Snapshot; openCreate?: boolean; prefill?: Prefill }) {
   const [snapshot, setSnapshot] = useState(initial), [view, setView] = useState<"Today" | "Week" | "Month">("Today"), [day, setDay] = useState(initial.today), [notice, setNotice] = useState(""), [loading, setLoading] = useState(false);
-  const [formOpen, setFormOpen] = useState(openCreate), [editing, setEditing] = useState<DiaryAppointment | null>(null);
+  const [formOpen, setFormOpen] = useState(openCreate), [editing, setEditing] = useState<DiaryAppointment | null>(null), [cancelling, setCancelling] = useState<DiaryAppointment | null>(null), [cancellationSaving, setCancellationSaving] = useState(false), [cancellationError, setCancellationError] = useState("");
   const noticeTimer = useRef<number | null>(null);
+  const cancellationInFlight = useRef(false), cancelTrigger = useRef<HTMLButtonElement | null>(null), keepAppointmentButton = useRef<HTMLButtonElement | null>(null), cancellationErrorElement = useRef<HTMLParagraphElement | null>(null), noticeElement = useRef<HTMLParagraphElement | null>(null);
   const showNotice = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
@@ -109,6 +136,21 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
     finally { setLoading(false); }
   }, [organisationId, view, day, snapshot.today, showNotice]);
   useEffect(() => () => { if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current); }, []);
+  useEffect(() => {
+    if (!cancelling) {
+      const trigger = cancelTrigger.current;
+      if (trigger?.isConnected) trigger.focus();
+      cancelTrigger.current = null;
+      return;
+    }
+    keepAppointmentButton.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !cancellationSaving) { event.preventDefault(); setCancelling(null); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cancelling, cancellationSaving]);
+  useEffect(() => { if (cancellationError) cancellationErrorElement.current?.focus(); }, [cancellationError]);
   useEffect(() => {
     const visible = () => { if (document.visibilityState === "visible") void refresh(); };
     const onFocus = () => { void refresh(); }, onPageShow = () => { void refresh(); };
@@ -130,20 +172,36 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
     const url = editing ? `/api/diary/appointments/${encodeURIComponent(editing.id)}?organisationId=${encodeURIComponent(organisationId)}` : `/api/diary/appointments?organisationId=${encodeURIComponent(organisationId)}`;
     const response = await fetch(url, { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...values, ...(editing ? { revision: editing.revision } : {}) }) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "Appointment could not be saved.");
+    if (editing && result.appointment && typeof result.appointment === "object") {
+      const saved = savedAppointment(result.appointment as Record<string, unknown>, editing);
+      setSnapshot(current => ({ ...current, appointments: (current.appointments || []).map(item => item.id === editing.id ? saved : item) }));
+    }
     setFormOpen(false); setEditing(null); showNotice(result.calendarSyncWarning || (editing ? "Appointment updated." : "Appointment created.")); await refresh({ preserveNotice: true });
   }
-  async function cancel(appointment: DiaryAppointment) {
-    const mirrorNotice = appointment.googleCalendarMirrored ? " Its Root-owned Google Calendar event will also be cancelled." : "";
-    if (!window.confirm(`Cancel “${appointment.title}”?${mirrorNotice} The appointment will remain in history.`)) return;
-    const response = await fetch(`/api/diary/appointments/${encodeURIComponent(appointment.id)}?organisationId=${encodeURIComponent(organisationId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", revision: appointment.revision }) });
-    const result = await response.json(); if (!response.ok) { showNotice(result.error || "Appointment could not be cancelled."); return; }
-    showNotice(result.calendarSyncWarning || "Appointment cancelled and retained in history."); await refresh({ preserveNotice: true });
+  async function cancel() {
+    const appointment = cancelling;
+    if (!appointment || cancellationInFlight.current) return;
+    cancellationInFlight.current = true; setCancellationSaving(true); setCancellationError("");
+    try {
+      const response = await fetch(`/api/diary/appointments/${encodeURIComponent(appointment.id)}?organisationId=${encodeURIComponent(organisationId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", revision: appointment.revision }) });
+      const result = await response.json();
+      if (!response.ok) {
+        const message = typeof result.error === "string" && result.error.trim() ? result.error.trim().slice(0, 400) : "Appointment could not be cancelled. Check the appointment and try again.";
+        setCancellationError(message); return;
+      }
+      cancelTrigger.current = null; setCancelling(null);
+      showNotice(result.calendarSyncWarning || "Appointment cancelled and retained in history."); await refresh({ preserveNotice: true });
+      window.setTimeout(() => noticeElement.current?.focus(), 0);
+    } catch {
+      setCancellationError("We couldn’t reach the Diary service, so the appointment was not cancelled. Check your connection and try again.");
+    } finally { cancellationInFlight.current = false; setCancellationSaving(false); }
   }
   async function retryGoogleSync(appointment: DiaryAppointment) {
     const response = await fetch(`/api/diary/appointments/${encodeURIComponent(appointment.id)}/google-sync?organisationId=${encodeURIComponent(organisationId)}`, { method: "POST" });
     const result = await response.json(); showNotice(response.ok ? "Google Calendar sync completed." : result.error || "Google Calendar sync remains pending."); await refresh({ preserveNotice: true });
   }
   function edit(appointment: DiaryAppointment) { setEditing(appointment); setFormOpen(true); }
+  function requestCancel(appointment: DiaryAppointment, trigger: HTMLButtonElement) { cancelTrigger.current = trigger; setCancellationError(""); setCancelling(appointment); }
   function closeForm() { setFormOpen(false); setEditing(null); }
   const appointmentList = (items: DiaryAppointment[]): AgendaEntry[] => [...items]
     .sort((a, b) => appointmentSortTime(a).localeCompare(appointmentSortTime(b)))
@@ -161,9 +219,10 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
   const selectedDate = appointmentsForDate(day);
   return <main className="diary-root"><header><p className="diary-eyebrow">YOUR DATED OPS WORK</p><h1>Diary</h1><p>Appointments alongside canonical meetings, follow-ups, tasks, waiting and manual history. Each keeps its own source.</p><p className="diary-updated">Europe/London · Updated {diaryLabel(snapshot.asOf, true)}</p><p className="diary-calendar-state"><strong>Google Calendar</strong> · {calendar.connected ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}` : "Not connected"}{!calendar.connected && <a href={`/api/diary/calendar/connect?organisationId=${encodeURIComponent(organisationId)}`}>Connect Google Calendar</a>}</p>{calendar.unavailable && <p className="diary-notice" role="status">Google Calendar could not be refreshed. Root appointments and operational work remain available.</p>}</header>
     <div className="diary-toolbar"><div role="group" aria-label="Diary view">{(["Today", "Week", "Month"] as const).map(v => <button key={v} aria-pressed={view === v} onClick={() => { setView(v); if (v === "Today") setDay(snapshot.today); }}>{v}</button>)}</div><div className="diary-primary-actions"><button onClick={() => { setEditing(null); setFormOpen(true); }} type="button">+ Add appointment</button><button onClick={() => { void refresh(); }} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div></div>
-    {notice && <p role="status" className="diary-notice">{notice}</p>}
+    {notice && <p ref={noticeElement} role="status" tabIndex={-1} className="diary-notice">{notice}</p>}
     {snapshot.summary && <p className="diary-empty">{snapshot.summary.actionableFollowups} actionable follow-ups · {snapshot.summary.futureFollowups} future follow-ups · {snapshot.summary.repliesNeedingResponse} replies need attention · {snapshot.summary.suppressedFollowups} suppressed follow-ups</p>}
     {formOpen && <div className="diary-dialog-backdrop"><section role="dialog" aria-modal="true" aria-label={editing ? "Edit appointment" : "Add appointment"}><AppointmentForm organisationId={organisationId} appointment={editing} date={editing ? appointmentDateKey({ all_day: editing.allDay, starts_at: editing.startsAt, start_date: editing.startDate, timezone: editing.timezone }) || day : day} prefill={editing?.relationship ? { id: editing.relationship.id, person: editing.relationship.person, company: editing.relationship.company } : prefill} calendarConnected={calendar.connected} onCancel={closeForm} onSave={save}/></section></div>}
+    {cancelling && <div className="diary-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !cancellationSaving) setCancelling(null); }}><section className="diary-cancel-dialog" role="dialog" aria-modal="true" aria-labelledby="diary-cancel-title" aria-describedby={cancellationError ? "diary-cancel-description diary-cancel-error" : "diary-cancel-description"} onKeyDown={event => { if (event.key !== "Tab") return; const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"), first = buttons.item(0), last = buttons.item(buttons.length - 1); if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); } }}><h2 id="diary-cancel-title">Cancel appointment?</h2><p><strong>{cancelling.title}</strong></p><p id="diary-cancel-description">{cancelling.googleCalendarMirrored && <>Its Root-owned Google Calendar event will also be cancelled. </>}The Root appointment will remain in history.</p>{cancellationError && <p ref={cancellationErrorElement} id="diary-cancel-error" className="diary-cancel-error" role="alert" tabIndex={-1}>{cancellationError}</p>}<div className="diary-form-actions"><button type="button" ref={keepAppointmentButton} disabled={cancellationSaving} onClick={() => { setCancelling(null); setCancellationError(""); }}>Keep appointment</button><button type="button" disabled={cancellationSaving} onClick={() => { void cancel(); }}>{cancellationSaving ? "Cancelling…" : cancellationError ? "Retry cancellation" : "Cancel appointment"}</button></div></section></div>}
     {view !== "Today" && <div className="diary-dates"><button aria-label="Previous period" onClick={() => setDay(diaryShift(day, view === "Week" ? -7 : -new Date(day + "T12:00:00Z").getUTCDate()))}>←</button><label>Period containing date <input type="date" value={day} onChange={e => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) setDay(e.target.value); }} /></label><button aria-label="Next period" onClick={() => setDay(view === "Week" ? diaryShift(day, 7) : diaryShift(monthDays.at(-1)!, 1))}>→</button></div>}
     {view === "Today" && <AppointmentWorkLanes
       className="diary-lanes diary-today"
@@ -177,14 +236,14 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
         { heading: "Today", entries: workList(snapshot.items.filter(item => diaryDay(item.at) === snapshot.today)) },
         { heading: "Upcoming", entries: workList(groups.upcoming) },
       ]}
-      onEdit={edit} onCancel={cancel} onRetry={retryGoogleSync}/ >}
+      onEdit={edit} onCancel={requestCancel} onRetry={retryGoogleSync}/ >}
     {view === "Week" && <AppointmentWorkLanes
       appointmentGroups={weekDates.map(date => ({ heading: diaryLabel(date), entries: appointmentsForDate(date) }))}
       workGroups={weekDates.map(date => ({ heading: diaryLabel(date), entries: workForDate(date) }))}
-      onEdit={edit} onCancel={cancel} onRetry={retryGoogleSync}/ >}
-    {view === "Month" && <><h2>{new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "Europe/London" }).format(new Date(day + "T12:00:00Z"))}</h2><div className="diary-month" role="group" aria-label="Choose a diary date">{monthDays.map(date => { const appointmentCount = appointments.filter(a => a.status !== "cancelled" && appointmentOccursOnDate(a, date)).length + calendarEvents.filter(event => googleEventOccursOnDate(event, date)).length; const workCount = snapshot.items.filter(item => diaryDay(item.at) === date).length; return <button key={date} aria-pressed={date === day} aria-label={`${diaryLabel(date)}: ${appointmentCount} appointment${appointmentCount === 1 ? "" : "s"}, ${workCount} operational item${workCount === 1 ? "" : "s"}`} onClick={() => setDay(date)}><strong>{Number(date.slice(-2))}</strong><span className="diary-month-counts"><span><b>{appointmentCount}</b> apt</span><span><b>{workCount}</b> work</span></span></button>; })}</div><h2 className="diary-selected-date">{diaryLabel(day)}</h2><AppointmentWorkLanes appointmentGroups={[{ heading: "Appointments", entries: selectedDate }]} workGroups={[{ heading: "Operational work", entries: workForDate(day) }]} onEdit={edit} onCancel={cancel} onRetry={retryGoogleSync}/></>}
+      onEdit={edit} onCancel={requestCancel} onRetry={retryGoogleSync}/ >}
+    {view === "Month" && <><h2>{new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "Europe/London" }).format(new Date(day + "T12:00:00Z"))}</h2><div className="diary-month" role="group" aria-label="Choose a diary date">{monthDays.map(date => { const appointmentCount = appointments.filter(a => a.status !== "cancelled" && appointmentOccursOnDate(a, date)).length + calendarEvents.filter(event => googleEventOccursOnDate(event, date)).length; const workCount = snapshot.items.filter(item => diaryDay(item.at) === date).length; return <button key={date} aria-pressed={date === day} aria-label={`${diaryLabel(date)}: ${appointmentCount} appointment${appointmentCount === 1 ? "" : "s"}, ${workCount} operational item${workCount === 1 ? "" : "s"}`} onClick={() => setDay(date)}><strong>{Number(date.slice(-2))}</strong><span className="diary-month-counts"><span><b>{appointmentCount}</b> apt</span><span><b>{workCount}</b> work</span></span></button>; })}</div><h2 className="diary-selected-date">{diaryLabel(day)}</h2><AppointmentWorkLanes appointmentGroups={[{ heading: "Appointments", entries: selectedDate }]} workGroups={[{ heading: "Operational work", entries: workForDate(day) }]} onEdit={edit} onCancel={requestCancel} onRetry={retryGoogleSync}/></>}
     {appointments.some(a => a.status === "cancelled") && <details className="diary-cancelled"><summary>Cancelled appointments ({appointments.filter(a => a.status === "cancelled").length})</summary><Agenda entries={appointmentList(appointments.filter(a => a.status === "cancelled"))} onEdit={() => undefined} onCancel={() => undefined} emptyLabel="No cancelled appointments."/></details>}
-    {!!groups.undated.length && <details><summary>Undated dependencies / manual history ({groups.undated.length})</summary><Agenda entries={workList(groups.undated)} onEdit={edit} onCancel={cancel} emptyLabel="No undated operational work."/></details>}
+    {!!groups.undated.length && <details><summary>Undated dependencies / manual history ({groups.undated.length})</summary><Agenda entries={workList(groups.undated)} onEdit={edit} onCancel={requestCancel} emptyLabel="No undated operational work."/></details>}
     <footer>Google-native events are read-only projections; Root appointments remain authoritative. Only appointments explicitly marked for Calendar sync create a Root-owned Google event. No attendees are invited automatically.</footer>
   </main>;
 }
