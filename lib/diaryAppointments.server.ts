@@ -13,7 +13,15 @@ export type DiaryAppointmentRow = {
   google_calendar_sync_enabled?: boolean; google_calendar_id?: string | null; google_calendar_event_id?: string | null;
   google_calendar_etag?: string | null; google_calendar_synced_at?: string | null;
   google_calendar_sync_pending?: boolean;
+  google_meet_enabled?: boolean; google_meet_request_id?: string | null; google_meet_url?: string | null;
+  google_calendar_attendee_email?: string | null;
 };
+
+export function publicDiaryAppointment(row: DiaryAppointmentRow) {
+  const publicRow = { ...row };
+  delete publicRow.google_meet_request_id;
+  return publicRow;
+}
 
 export class DiaryAppointmentError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -76,6 +84,8 @@ export async function saveDiaryAppointment(tenant: RelationshipTenant, action: "
     p_timezone: values?.timezone ?? null, p_all_day: values?.allDay ?? null,
     p_location: values?.location ?? null, p_meeting_url: values?.meetingUrl ?? null,
     p_notes: values?.notes ?? null, p_status: values?.status ?? null,
+    p_google_meet_enabled: values?.googleMeetEnabled ?? null,
+    p_google_calendar_attendee_email: values?.googleCalendarAttendeeEmail ?? null,
   });
   if (error) throw errorFromRpc(error);
   const row = (Array.isArray(data) ? data[0] : data) as DiaryAppointmentRow | null;

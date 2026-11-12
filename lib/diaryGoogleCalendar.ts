@@ -51,8 +51,14 @@ export function rootGoogleEventBody(row: {
   id: string; organisation_id: string; title: string; starts_at: string | null; ends_at: string | null;
   start_date: string | null; end_date: string | null; timezone: string; all_day: boolean;
   location: string | null; meeting_url: string | null; notes: string | null;
-}, eventId: string) {
-  return {
+}, eventId: string, options: {
+  attendeeEmail?: string | null;
+  includeAttendees?: boolean;
+  conferenceData?: Record<string, unknown>;
+  conferenceRequestId?: string | null;
+  clearConference?: boolean;
+} = {}) {
+  const body: Record<string, unknown> = {
     id: eventId,
     summary: row.title,
     description: [row.notes, row.meeting_url ? `Meeting link: ${row.meeting_url}` : null].filter(Boolean).join("\n\n") || undefined,
@@ -63,4 +69,9 @@ export function rootGoogleEventBody(row: {
     // meeting_url is shown in Root and is intentionally not converted to a
     // Google Meet or attendee invitation.
   };
+  if (options.includeAttendees) body.attendees = options.attendeeEmail ? [{ email: options.attendeeEmail }] : [];
+  if (options.conferenceData) body.conferenceData = options.conferenceData;
+  else if (options.conferenceRequestId) body.conferenceData = { createRequest: { requestId: options.conferenceRequestId, conferenceSolutionKey: { type: "hangoutsMeet" } } };
+  else if (options.clearConference) body.conferenceData = {};
+  return body;
 }

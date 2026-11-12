@@ -115,6 +115,39 @@ test('all-day appointment keeps date semantics and cancellation history stays ou
 
 test('Add appointment form sends explicit values and refreshes without changing existing Ops items',async()=>{const requests=[];const created={...appointment,id:'new-apt',title:'Test call',relationship:null};const data={...snapshot,appointments:[created]};const deps={__fetch:async(url,init={})=>{requests.push([url,init]);if(init.method==='POST')return Response.json({success:true,appointment:created},{status:201});return Response.json(data);}};const FormDiary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model,'__fetch':deps.__fetch}).default;let tree;await act(async()=>{tree=renderer.create(React.createElement(FormDiary,{organisationId:org,initial:snapshot}));});await act(async()=>tree.root.findAllByType('button').find(b=>b.props.children==='+ Add appointment').props.onClick());const form=tree.root.findByType('form'),title=form.findAllByType('input').find(i=>i.props.value==='');await act(()=>title.props.onChange({target:{value:'Test call'}}));await act(async()=>form.props.onSubmit({preventDefault(){}}));assert.equal(requests[0][1].method,'POST');assert.match(requests[0][0],/api\/diary\/appointments/);assert.match(JSON.stringify(requests[0][1].body),/Test call/);assert.match(JSON.stringify(tree.toJSON()),/Test call/);assert.match(JSON.stringify(tree.toJSON()),/Controlled follow-up/);await act(()=>tree.unmount());});
 
+test('one verified relationship email is prefilled but Google Meet does not imply an attendee invitation',async()=>{
+  const relationId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';let saved=null,tree;
+  const fetcher=async url=>url.includes('relationshipId=')?Response.json({verifiedEmails:['sam@example.com']}):Response.json(snapshot);
+  const Form=load('app/dashboard/diary/AppointmentForm.tsx',{'__fetch':fetcher}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(Form,{organisationId:org,appointment:null,date:'2026-10-22',prefill:{id:relationId,person:'Sam Example'},calendarConnected:true,onCancel(){},onSave:async values=>{saved=values;}}));});
+  await act(async()=>new Promise(resolve=>setTimeout(resolve,0)));
+  const form=tree.root.findByType('form'),checkboxes=form.findAllByType('input').filter(input=>input.props.type==='checkbox');
+  assert.equal(form.findAllByType('input').find(input=>input.props.type==='email').props.value,'sam@example.com');
+  const meet=checkboxes[2],invite=checkboxes[3];
+  assert.equal(meet.props.checked,false);assert.equal(invite.props.checked,false);
+  await act(()=>meet.props.onChange({target:{checked:true}}));
+  await act(async()=>form.props.onSubmit({preventDefault(){}}));
+  assert.equal(saved.googleMeetEnabled,true);assert.equal(saved.googleCalendarAttendeeEmail,'sam@example.com');assert.equal(saved.inviteAttendee,false,'a prefilled address is not an invitation choice');
+  assert.match(JSON.stringify(tree.toJSON()),/will not be invited unless you check Invite attendee/);
+  await act(()=>tree.unmount());
+});
+
+test('editing a linked appointment preserves its saved attendee when relationship lookup differs',async()=>{
+  const relationId='rel-1',savedEmail='saved@example.com';let saved=null,tree;
+  const existing={...appointment,googleCalendarSyncEnabled:true,googleMeetEnabled:true,googleCalendarAttendeeEmail:savedEmail,relationship:{...appointment.relationship,id:relationId}};
+  const fetcher=async url=>url.includes('relationshipId=')?Response.json({verifiedEmails:['lookup@example.com']}):Response.json(snapshot);
+  const Form=load('app/dashboard/diary/AppointmentForm.tsx',{'__fetch':fetcher}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(Form,{organisationId:org,appointment:existing,date:'2026-10-22',prefill:{id:relationId,person:'Auriel Wetherall'},calendarConnected:true,onCancel(){},onSave:async values=>{saved=values;}}));});
+  await act(async()=>new Promise(resolve=>setTimeout(resolve,0)));
+  const form=tree.root.findByType('form'),email=form.findAllByType('input').find(input=>input.props.type==='email');
+  assert.equal(email.props.value,savedEmail,'relationship lookup must not replace a previously selected attendee');
+  const title=form.findAllByType('input').find(input=>input.props.value===existing.title);await act(()=>title.props.onChange({target:{value:'Updated title only'}}));
+  await act(async()=>form.props.onSubmit({preventDefault(){}}));
+  assert.equal(saved.googleCalendarAttendeeEmail,savedEmail);assert.equal(saved.inviteAttendee,true);
+  assert.doesNotMatch(JSON.stringify(tree.toJSON()),/I confirm this attendee change/,'an unrelated edit must not require attendee-change confirmation');
+  await act(()=>tree.unmount());
+});
+
 test('Root appointment edit opens current values, PATCHes the displayed revision and shows the saved value after refresh',async()=>{
   const requests=[],data={...snapshot,appointments:[appointment]};let tree;
   const savedRow={id:appointment.id,title:'Auriel Wetherall rescheduled',organisation_id:org,owner_user_id:'owner-1',relationship_id:'rel-1',starts_at:'2026-10-22T15:00:00.000Z',ends_at:'2026-10-22T15:45:00.000Z',start_date:null,end_date:null,timezone:'Europe/London',all_day:false,location:'Root Health',meeting_url:null,notes:'Review opportunity',status:'confirmed',source:'relationship',revision:3,created_at:appointment.createdAt,updated_at:'2026-10-22T12:00:00Z',cancelled_at:null,google_calendar_sync_enabled:false,google_calendar_event_id:null,google_calendar_synced_at:null,google_calendar_sync_pending:false};

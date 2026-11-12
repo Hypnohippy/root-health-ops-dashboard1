@@ -10,8 +10,8 @@ export const POST = withTenantRoute(async (request, tenant) => {
   if (error || !data) return NextResponse.json({ success: false, error: "Appointment not found." }, { status: 404 });
   if (data.google_calendar_sync_enabled !== true || data.status === "cancelled") return NextResponse.json({ success: false, error: "This appointment is not eligible for Google Calendar retry." }, { status: 409 });
   try {
-    await syncRootAppointment(data.organisation_id, data);
-    return NextResponse.json({ success: true }, { headers: { "Cache-Control": "no-store" } });
+    const result = await syncRootAppointment(data.organisation_id, data);
+    return NextResponse.json({ success: true, googleMeetUrl: result.googleMeetUrl, googleMeetPending: result.googleMeetPending }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ success: false, error: "Google Calendar sync remains pending. Check the connection and retry." }, { status: 502 });
   }

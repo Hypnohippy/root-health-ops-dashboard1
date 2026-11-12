@@ -11,6 +11,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { responseAttention,responseLifecycleMap } from "@/lib/responseLifecycle";
 import { cadenceEvidence } from "@/lib/linkedinSendEvidence";
 import { cadenceDays,legacyCadenceStages,growthFollowUpDueAt } from "@/lib/growthOutreach";
+import { sharedIdentityMailbox } from "@/lib/relationshipIdentityEnrichment";
 import type { TruthRow } from "@/lib/relationshipTruth";
 /** Read orchestration only. Identity partition scopes existing lifecycle/history readers;
  * shadow Truth action recommendations never authorize an operational action. */
@@ -24,6 +25,24 @@ async function prepareOperationalRead(tenant:RelationshipTenant) {
  const responses=responseLifecycleMap(org,ctx.input,now),attention=responseAttention(org,ctx.input,responses);
  return {ctx,org,asOf,now,inventory,stale,rawInput,queue,responses,attention};
 }
+
+/** Only structurally verified, permission-visible, non-ambiguous identity aliases may prefill an invite address. */
+export async function verifiedRelationshipEmails(tenant: RelationshipTenant, workspaceId: string): Promise<string[]> {
+    const { ctx, inventory } = await prepareOperationalRead(tenant);
+    const workspace = ctx.workspaces.find(row => row.id === workspaceId && row.organisation_id === tenant.organisationId && !row.founder_only);
+    if (!workspace) return [];
+    const requested = ctx.links.filter(link => link.workspace_id === workspaceId && link.organisation_id === tenant.organisationId)
+        .map(link => ({ table: link.source_table, id: String(link.source_id) }));
+    if (!requested.length) return [];
+    const entries = inventory.entries.filter(entry => entry.refs.some(ref => requested.some(source => source.table === ref.table && source.id === ref.id)));
+    if (entries.length !== 1 || entries[0].result.ambiguity.state !== "established" || entries[0].result.entityKind !== "person" ||
+        !requested.every(source => entries[0].refs.some(ref => source.table === ref.table && source.id === ref.id))) return [];
+    return [...new Set(entries[0].result.verifiedAliases
+        .filter(alias => alias.type === "email" && !sharedIdentityMailbox(alias.value))
+        .map(alias => alias.value.trim().toLowerCase())
+        .filter(value => value.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)))].sort();
+}
+
 export async function readOperationalIntelligence(tenant: RelationshipTenant, locator: string, prepared?:Awaited<ReturnType<typeof prepareOperationalRead>>,helpers?:{history:typeof readTenantHistory;members:Record<string,unknown>[]}) {
     const state=prepared||await prepareOperationalRead(tenant);
     const {ctx,org,inventory,stale,rawInput,queue,responses,now}=state;
