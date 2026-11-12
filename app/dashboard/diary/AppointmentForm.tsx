@@ -48,8 +48,7 @@ export default function AppointmentForm({ organisationId, appointment, date, pre
         if (!active) return;
         const emails = Array.isArray(result.verifiedEmails) ? result.verifiedEmails.filter((email: unknown) => typeof email === "string") : [];
         setVerifiedEmails(emails);
-        if (emails.length === 1 && !emailEdited) setValues(current => ({ ...current, googleCalendarAttendeeEmail: emails[0] }));
-        if (emails.length !== 1 && !emailEdited) setValues(current => ({ ...current, googleCalendarAttendeeEmail: "" }));
+        if (emails.length === 1 && !emailEdited) setValues(current => current.googleCalendarAttendeeEmail ? current : { ...current, googleCalendarAttendeeEmail: emails[0] });
       }).catch(() => { if (active) setVerifiedEmails([]); });
     return () => { active = false; };
   }, [organisationId, values.relationshipId, emailEdited]);

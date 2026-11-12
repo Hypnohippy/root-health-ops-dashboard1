@@ -139,6 +139,7 @@ test("Meet pending state sends no invitation and later confirmation reuses the r
   event.conferenceData.conferenceSolution = { key: { type: "hangoutsMeet" } };
   event.conferenceData.entryPoints = [{ entryPointType: "video", uri: "https://meet.google.com/abc-defg-hij" }];
   event.hangoutLink = "https://meet.google.com/abc-defg-hij";
+  event.etag = "etag-conference-completed";
   const confirmed = await h.service.syncRootAppointment(appointment.organisation_id, savedPending);
   assert.equal(confirmed.googleMeetPending, false);
   assert.equal(confirmed.googleMeetUrl, "https://meet.google.com/abc-defg-hij");
@@ -148,6 +149,8 @@ test("Meet pending state sends no invitation and later confirmation reuses the r
   assert.equal(h.operations[1].requestBody.conferenceData.createRequest.requestId, savedPending.google_meet_request_id);
   assert.deepEqual(eventAttendees(h.events.get(eventId)), ["sam@example.com"]);
   assert.equal(h.operations[1].sendUpdates, "all");
+  assert.equal(h.operations.filter(operation => operation.kind === "insert").length, 1, "conference completion reuses the same Google event");
+  assert.equal(h.operations.filter(operation => operation.sendUpdates === "all").length, 1, "the attendee is invited once after Meet confirmation");
 });
 
 test("a Meet-shaped link is not stored while Google's conference request is still pending", async () => {

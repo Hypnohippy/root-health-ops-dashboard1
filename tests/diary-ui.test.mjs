@@ -132,6 +132,22 @@ test('one verified relationship email is prefilled but Google Meet does not impl
   await act(()=>tree.unmount());
 });
 
+test('editing a linked appointment preserves its saved attendee when relationship lookup differs',async()=>{
+  const relationId='rel-1',savedEmail='saved@example.com';let saved=null,tree;
+  const existing={...appointment,googleCalendarSyncEnabled:true,googleMeetEnabled:true,googleCalendarAttendeeEmail:savedEmail,relationship:{...appointment.relationship,id:relationId}};
+  const fetcher=async url=>url.includes('relationshipId=')?Response.json({verifiedEmails:['lookup@example.com']}):Response.json(snapshot);
+  const Form=load('app/dashboard/diary/AppointmentForm.tsx',{'__fetch':fetcher}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(Form,{organisationId:org,appointment:existing,date:'2026-10-22',prefill:{id:relationId,person:'Auriel Wetherall'},calendarConnected:true,onCancel(){},onSave:async values=>{saved=values;}}));});
+  await act(async()=>new Promise(resolve=>setTimeout(resolve,0)));
+  const form=tree.root.findByType('form'),email=form.findAllByType('input').find(input=>input.props.type==='email');
+  assert.equal(email.props.value,savedEmail,'relationship lookup must not replace a previously selected attendee');
+  const title=form.findAllByType('input').find(input=>input.props.value===existing.title);await act(()=>title.props.onChange({target:{value:'Updated title only'}}));
+  await act(async()=>form.props.onSubmit({preventDefault(){}}));
+  assert.equal(saved.googleCalendarAttendeeEmail,savedEmail);assert.equal(saved.inviteAttendee,true);
+  assert.doesNotMatch(JSON.stringify(tree.toJSON()),/I confirm this attendee change/,'an unrelated edit must not require attendee-change confirmation');
+  await act(()=>tree.unmount());
+});
+
 test('Root appointment edit opens current values, PATCHes the displayed revision and shows the saved value after refresh',async()=>{
   const requests=[],data={...snapshot,appointments:[appointment]};let tree;
   const savedRow={id:appointment.id,title:'Auriel Wetherall rescheduled',organisation_id:org,owner_user_id:'owner-1',relationship_id:'rel-1',starts_at:'2026-10-22T15:00:00.000Z',ends_at:'2026-10-22T15:45:00.000Z',start_date:null,end_date:null,timezone:'Europe/London',all_day:false,location:'Root Health',meeting_url:null,notes:'Review opportunity',status:'confirmed',source:'relationship',revision:3,created_at:appointment.createdAt,updated_at:'2026-10-22T12:00:00Z',cancelled_at:null,google_calendar_sync_enabled:false,google_calendar_event_id:null,google_calendar_synced_at:null,google_calendar_sync_pending:false};
