@@ -63,7 +63,7 @@ for (const [category, role, company, family] of cases) {
     assert.match(message, /^Hi Keeley — thanks for connecting\./);
     assert.equal(strategy.linkedInFirstMessageFamily({ role, company, recipientCategory: category }), family);
     assert.equal(strategy.linkedInFirstMessageAngle(family), angleLabels[family]);
-    assert.match(message, /short 20-minute call next week\?/i);
+    assert.match(message, /short 20-minute (?:call|conversation) next week\?/i);
     assert.doesNotMatch(message, /https?:|hope you(?:'|’)re well|pick your brain|I came across your profile/i);
     assert.ok(message.split(/\s+/).length >= 50 && message.split(/\s+/).length <= 110);
     const selected = queue.linkedInOutreachQueue(org, input).items[0];
@@ -84,7 +84,7 @@ test("all role families have three approved variants within length and style lim
     const message=strategy.linkedInDayZeroMessage(context,variant), words=message.trim().split(/\s+/);
     assert.equal(strategy.linkedInFirstMessageFamily(context),family);
     assert.ok(words.length>=50&&words.length<=110,`${family}/${variant}: ${words.length}`);
-    assert.ok(words.length<=140);assert.match(message,/short 20-minute call next week\?/i);
+    assert.ok(words.length<=140);assert.match(message,/short 20-minute (?:call|conversation) next week\?/i);
     assert.doesNotMatch(message,/https?:|hope you(?:'|’)re well|pick your brain|😀|\n[-*•]/i);
     assert.equal(strategy.safeDayZeroMessage(message,context),true);
     assert.equal(strategy.safeDayZeroMessage(message+" Extra unsupported claim.",context),false);
@@ -94,7 +94,13 @@ test("manual regeneration varies copy without changing role family", () => {
   const context={name:"Keeley",role:"People Director",recipientCategory:"hr_people"};
   const messages=[0,1,2].map(variant=>strategy.linkedInDayZeroMessage(context,variant));
   assert.equal(new Set(messages).size,3);
-  assert.ok(messages.every(message=>strategy.linkedInFirstMessageFamily(context)==="people_leader"));
+  assert.ok(messages.every(()=>strategy.linkedInFirstMessageFamily(context)==="people_leader"));
+});
+test("approved People Leader and Partner defaults match the reviewed wording", () => {
+  const people = strategy.linkedInDayZeroMessage({ name: "Jordan", role: "People Director" });
+  const partner = strategy.linkedInDayZeroMessage({ name: "Casey", role: "Workplace Wellbeing Consultant" });
+  assert.equal(people, "Hi Jordan — thanks for connecting. I’m working on a preventative wellbeing platform designed to give People teams a clearer view of workforce pressure, recovery and emerging risk before it turns into absence, burnout or disengagement. The aim is to give HR something more useful than another wellbeing benefit — ongoing visibility into how the workforce is actually doing and where support may be needed. I’d really value your perspective. Would you be open to a short 20-minute call next week?");
+  assert.equal(partner, "Hi Casey — thanks for connecting. I’m working on something that may sit quite naturally alongside the work consultants and wellbeing professionals already do with organisations. The idea is to give employers a more continuous view of workforce wellbeing between interventions, without replacing the existing service or client relationship. There may be an interesting partnership or referral angle in that. Would you be open to a short 20-minute conversation next week?");
 });
 test("uncertain and unresolved professional context uses General; stale company fragments never leak", () => {
   const general=strategy.linkedInDayZeroMessage({name:"Keeley"});
