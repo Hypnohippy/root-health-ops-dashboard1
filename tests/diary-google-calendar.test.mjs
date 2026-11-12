@@ -26,7 +26,7 @@ test("Calendar projection preserves all-day dates, video links and UK DST-safe b
   assert.equal(model.googleEventId("org", "appointment"), model.googleEventId("org", "appointment"));
 });
 
-function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "success" } = {}) {
+function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "success", staleFirstPatch = false } = {}) {
   const db = { connection: null, appointments: new Map(), queriedTables: [] };
   class Query {
     constructor(table) { this.table = table; this.filters = {}; this.fields = {}; }
@@ -45,7 +45,7 @@ function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "
     }
   }
   const supabaseAdmin = { from(table) { db.queriedTables.push(table); return new Query(table); } };
-  const events = new Map(); let insertCalls = 0, updateCalls = 0, listArgs; const operations = [];
+  const events = new Map(); let insertCalls = 0, updateCalls = 0, patchCalls = 0, listArgs, staleNextPatch = staleFirstPatch; const operations = [], deliveredUpdates = [];
   const withConference = (event, request) => {
     if (!request) return event;
     const existing = event.conferenceData?.createRequest;
@@ -60,13 +60,14 @@ function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "
     async insert({ requestBody, sendUpdates, conferenceDataVersion }) { insertCalls++; operations.push({ kind: "insert", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); if (events.has(requestBody.id)) throw { code: 409 }; const created = withConference({ ...structuredClone(requestBody), etag: "etag-1" }, requestBody.conferenceData?.createRequest); events.set(requestBody.id, created); if (loseFirstInsertResponse && insertCalls === 1) throw { code: 503 }; return { data: structuredClone(created) }; },
     async get({ eventId }) { const event = events.get(eventId); if (!event) throw { code: 404 }; return { data: structuredClone(event) }; },
     async update({ eventId, requestBody, sendUpdates, conferenceDataVersion }, options) { updateCalls++; const current = events.get(eventId); assert.equal(options?.headers?.["If-Match"], current.etag); operations.push({ kind: "update", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); const updated = { ...structuredClone(requestBody), etag: `etag-${updateCalls + 1}` }; if (requestBody.conferenceData?.createRequest) withConference(updated, requestBody.conferenceData.createRequest); else if (requestBody.conferenceData && Object.keys(requestBody.conferenceData).length === 0) { updated.conferenceData = null; updated.hangoutLink = null; } events.set(eventId, updated); return { data: structuredClone(updated) }; },
+    async patch({ eventId, requestBody, sendUpdates }, options) { patchCalls++; const current = events.get(eventId); operations.push({ kind: "patch", eventId, sendUpdates, requestBody: structuredClone(requestBody), ifMatch: options?.headers?.["If-Match"] }); if (staleNextPatch) { staleNextPatch = false; current.etag = "etag-raced"; throw { code: 412 }; } assert.equal(options?.headers?.["If-Match"], current.etag); const updated = { ...structuredClone(current), ...structuredClone(requestBody), etag: `etag-patch-${patchCalls}` }; events.set(eventId, updated); if (sendUpdates === "all") deliveredUpdates.push({ eventId, attendees: structuredClone(updated.attendees || []) }); return { data: structuredClone(updated) }; },
     async delete({ eventId, sendUpdates }) { operations.push({ kind: "delete", sendUpdates }); events.delete(eventId); return { data: {} }; },
   } };
   class OAuth2 { setCredentials(value) { this.credentials = value; } }
   const google = { auth: { OAuth2 }, calendar: () => calendar };
   const calendarModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
   const service = load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": calendarModel }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback" } });
-  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, operations, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get listArgs() { return listArgs; }, set conferenceStatus(value) { conferenceStatus = value; } };
+  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, operations, deliveredUpdates, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get patchCalls() { return patchCalls; }, get listArgs() { return listArgs; }, set conferenceStatus(value) { conferenceStatus = value; }, set staleNextPatch(value) { staleNextPatch = value; } };
 }
 
 const row = (org = "org-1") => ({ id: "apt-1", organisation_id: org, title: "Planning", starts_at: "2026-10-25T10:00:00Z", ends_at: "2026-10-25T10:30:00Z", start_date: null, end_date: null, timezone: "Europe/London", all_day: false, location: "London", meeting_url: "https://calls.example/existing", notes: "Discuss plan", status: "confirmed", google_calendar_sync_enabled: false, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null, google_meet_enabled: false, google_meet_request_id: null, google_meet_url: null, google_calendar_attendee_email: null });
@@ -91,7 +92,7 @@ test("Root mirror retries reuse one deterministic event and edits update that ex
   assert.ok(eventId); assert.equal(h.events.size, 1); assert.equal(mirrored.google_calendar_sync_pending, false);
   const edited = { ...mirrored, title: "Planning rescheduled", starts_at: "2026-10-26T10:00:00Z" };
   await h.service.syncRootAppointment(root.organisation_id, edited);
-  assert.equal(h.events.size, 1); assert.equal([...h.events.keys()][0], eventId); assert.equal(h.updateCalls, 1);
+  assert.equal(h.events.size, 1); assert.equal([...h.events.keys()][0], eventId); assert.equal(h.patchCalls, 1);
   assert.equal(h.events.get(eventId).summary, "Planning rescheduled"); assert.equal(h.events.get(eventId).extendedProperties.private.rootAppointmentId, root.id);
   await h.service.cancelRootMirror(root.organisation_id, h.db.appointments.get(root.id));
   assert.equal(h.events.size, 0, "only the stored Root-owned mirror is cancelled");
@@ -112,8 +113,8 @@ test("Google Meet is confirmed on the deterministic event before an explicitly r
   assert.equal(h.operations[0].conferenceDataVersion, 1);
   assert.equal(h.operations[0].sendUpdates, "none", "event creation does not invite before Meet is confirmed");
   assert.equal(h.operations[0].requestBody.attendees, undefined);
-  assert.equal(h.operations[1].kind, "update");
-  assert.equal(h.operations[1].conferenceDataVersion, 1);
+  assert.equal(h.operations[1].kind, "patch");
+  assert.equal(h.operations[1].requestBody.conferenceData, undefined, "the attendee invitation does not replace Google's confirmed conference");
   assert.equal(h.operations[1].sendUpdates, "all");
   assert.deepEqual(eventAttendees(event), ["sam@example.com"]);
   assert.equal(event.conferenceData.createRequest.requestId, stored.google_meet_request_id);
@@ -144,9 +145,9 @@ test("Meet pending state sends no invitation and later confirmation reuses the r
   assert.equal(confirmed.googleMeetPending, false);
   assert.equal(confirmed.googleMeetUrl, "https://meet.google.com/abc-defg-hij");
   assert.equal(h.events.size, 1);
-  assert.equal(h.operations[1].kind, "update");
-  assert.equal(h.operations[1].requestBody.id, eventId);
-  assert.equal(h.operations[1].requestBody.conferenceData.createRequest.requestId, savedPending.google_meet_request_id);
+  assert.equal(h.operations[1].kind, "patch");
+  assert.equal(h.operations[1].eventId, eventId);
+  assert.equal(h.operations[1].requestBody.conferenceData, undefined);
   assert.deepEqual(eventAttendees(h.events.get(eventId)), ["sam@example.com"]);
   assert.equal(h.operations[1].sendUpdates, "all");
   assert.equal(h.operations.filter(operation => operation.kind === "insert").length, 1, "conference completion reuses the same Google event");
@@ -198,7 +199,7 @@ test("rescheduling and attendee changes update the same Root event and retain it
   const event = h.events.get(eventId);
   assert.equal(h.events.size, 1);
   assert.equal(h.insertCalls, 1);
-  assert.equal(h.updateCalls, 2);
+  assert.equal(h.patchCalls, 2, "initial invitation and reschedule patch the same event without replacing its conference");
   assert.equal(event.id, eventId);
   assert.equal(event.start.dateTime, updated.starts_at);
   assert.equal(event.conferenceData.createRequest.requestId, requestId);
@@ -206,6 +207,50 @@ test("rescheduling and attendee changes update the same Root event and retain it
   assert.equal(h.db.appointments.get(appointment.id).google_meet_url, "https://meet.google.com/abc-defg-hij");
   assert.deepEqual(eventAttendees(event), ["alex@example.com"]);
   assert.equal(h.operations[2].sendUpdates, "all", "a changed attendee is explicitly notified on the same event");
+});
+
+test("Root reschedule rebases on the fetched ETag, preserves Meet and attendee, and retries a 412 on the same event", async () => {
+  const h = calendarHarness(), appointment = { ...row(), google_meet_enabled: true, google_calendar_attendee_email: "infocyclops3@gmail.com" };
+  h.db.appointments.set(appointment.id, structuredClone(appointment));
+  await h.service.storeGoogleCalendarConnection({ organisationId: appointment.organisation_id, ownerUserId: "user-1", accountId: "google-1", email: "david@example.com", refreshToken: "server-only-refresh" });
+  await h.service.syncRootAppointment(appointment.organisation_id, appointment);
+
+  const saved = structuredClone(h.db.appointments.get(appointment.id));
+  const eventId = saved.google_calendar_event_id, meetUrl = saved.google_meet_url, requestId = saved.google_meet_request_id;
+  const priorEtag = saved.google_calendar_etag, patchesBefore = h.patchCalls, noticesBefore = h.deliveredUpdates.length;
+  const event = h.events.get(eventId);
+  event.etag = "etag-google-refreshed";
+  assert.notEqual(event.etag, priorEtag, "the stored ETag is stale before the Root reschedule");
+  const rescheduled = { ...saved, starts_at: "2026-10-25T07:10:00Z", ends_at: "2026-10-25T07:59:00Z" };
+  h.db.appointments.set(appointment.id, structuredClone(rescheduled));
+  h.staleNextPatch = true;
+  const result = await h.service.syncRootAppointment(appointment.organisation_id, rescheduled);
+
+  const stored = h.db.appointments.get(appointment.id), updatedEvent = h.events.get(eventId);
+  assert.equal(h.events.size, 1);
+  assert.equal(h.insertCalls, 1, "rescheduling does not insert another event");
+  assert.equal(h.patchCalls - patchesBefore, 2, "one raced If-Match is refetched and retried once");
+  const attempts = h.operations.filter(operation => operation.kind === "patch").slice(-2);
+  assert.deepEqual(attempts.map(operation => operation.eventId), [eventId, eventId]);
+  assert.equal(attempts[0].ifMatch, "etag-google-refreshed");
+  assert.equal(attempts[1].ifMatch, "etag-raced", "retry uses the freshly fetched ETag");
+  assert.equal(attempts[1].requestBody.start.dateTime, rescheduled.starts_at);
+  assert.equal(attempts[1].requestBody.end.dateTime, rescheduled.ends_at);
+  assert.equal(attempts[1].requestBody.conferenceData, undefined, "reschedule leaves Google conference data untouched");
+  assert.deepEqual(eventAttendees(updatedEvent), ["infocyclops3@gmail.com"]);
+  assert.equal(updatedEvent.hangoutLink, meetUrl);
+  assert.equal(updatedEvent.conferenceData.createRequest.requestId, requestId);
+  assert.equal(result.googleMeetUrl, meetUrl);
+  assert.equal(stored.google_calendar_etag, updatedEvent.etag);
+  assert.equal(stored.google_calendar_sync_pending, false);
+  assert.equal(h.deliveredUpdates.length - noticesBefore, 1, "the successful update notifies the attendee once");
+  assert.deepEqual(h.deliveredUpdates.at(-1), { eventId, attendees: [{ email: "infocyclops3@gmail.com" }] });
+
+  const patchCountAfterSuccess = h.patchCalls;
+  await h.service.syncRootAppointment(appointment.organisation_id, structuredClone(stored));
+  assert.equal(h.patchCalls, patchCountAfterSuccess, "retry after success is idempotent");
+  assert.equal(h.events.size, 1);
+  assert.equal(h.db.appointments.get(appointment.id).google_calendar_sync_pending, false);
 });
 
 test("a stored email without explicit invitation intent never becomes a Calendar attendee", async () => {
@@ -284,7 +329,7 @@ test("409 recovery reconciles a lost insert response to the current rescheduled 
   const current={...initial,title:"Planning moved",starts_at:"2026-10-27T15:00:00Z",ends_at:"2026-10-27T15:45:00Z",timezone:"Europe/London",location:"Manchester",notes:"Updated plan"};
   await h.service.syncRootAppointment(current.organisation_id,current);
   const id=h.googleEventId(current.organisation_id,current.id),event=h.events.get(id),stored=h.db.appointments.get(current.id);
-  assert.equal(h.updateCalls,1);assert.equal(event.summary,"Planning moved");assert.equal(event.start.dateTime,current.starts_at);assert.equal(event.end.dateTime,current.ends_at);assert.equal(event.start.timeZone,current.timezone);assert.equal(event.location,current.location);assert.match(event.description,/Updated plan/);
+  assert.equal(h.patchCalls,1);assert.equal(event.summary,"Planning moved");assert.equal(event.start.dateTime,current.starts_at);assert.equal(event.end.dateTime,current.ends_at);assert.equal(event.start.timeZone,current.timezone);assert.equal(event.location,current.location);assert.match(event.description,/Updated plan/);
   assert.equal(stored.google_calendar_event_id,id);assert.equal(stored.google_calendar_etag,event.etag);assert.equal(stored.google_calendar_sync_pending,false);assert.ok(stored.google_calendar_synced_at);
 });
 

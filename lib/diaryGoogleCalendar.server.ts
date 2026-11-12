@@ -121,7 +121,7 @@ function eventAttendeeEmails(event: { attendees?: Array<{ email?: string | null 
   return [...new Set((event.attendees || []).map(item => item.email?.trim().toLowerCase()).filter((email): email is string => !!email))].sort();
 }
 type RootCalendarEvent = { id?: string | null; summary?: string | null; location?: string | null; description?: string | null; start?: { date?: string | null; dateTime?: string | null; timeZone?: string | null } | null; end?: { date?: string | null; dateTime?: string | null; timeZone?: string | null } | null; attendees?: Array<{ email?: string | null }> | null; hangoutLink?: string | null; conferenceData?: { createRequest?: { requestId?: string | null; status?: { statusCode?: string | null } | null } | null; entryPoints?: Array<{ entryPointType?: string | null; uri?: string | null }> | null; conferenceSolution?: { key?: { type?: string | null } | null } | null } | null };
-function rootEventMatches(event: RootCalendarEvent, row: RootMirrorRow, allowUnsentMeetAttendee = false) {
+function rootEventMatches(event: RootCalendarEvent, row: RootMirrorRow) {
   const includeAttendee = !row.google_meet_enabled || !!row.google_meet_url || !!confirmedMeetUrl(event);
   const body = rootGoogleEventBody(row, "event", { includeAttendees: true, attendeeEmail: includeAttendee ? row.google_calendar_attendee_email : null }) as {
     summary: string; location?: string; description?: string;
@@ -135,9 +135,7 @@ function rootEventMatches(event: RootCalendarEvent, row: RootMirrorRow, allowUns
     (row.all_day ? event.start?.date === body.start.date && event.end?.date === body.end.date : sameDateTime(event.start?.dateTime, body.start.dateTime) && sameDateTime(event.end?.dateTime, body.end.dateTime) && event.start?.timeZone === expectedStartTimeZone && event.end?.timeZone === expectedEndTimeZone);
   const actualAttendees = eventAttendeeEmails(event);
   const expectedAttendees = includeAttendee && row.google_calendar_attendee_email ? [row.google_calendar_attendee_email.trim().toLowerCase()] : [];
-  const attendeesMatch = JSON.stringify(actualAttendees) === JSON.stringify(expectedAttendees) ||
-    (allowUnsentMeetAttendee && row.google_meet_enabled === true && !row.google_meet_url && expectedAttendees.length === 1 && actualAttendees.length === 0);
-  if (!baseMatches || !attendeesMatch) return false;
+  if (!baseMatches || JSON.stringify(actualAttendees) !== JSON.stringify(expectedAttendees)) return false;
   if (row.google_meet_enabled) {
     const confirmed = confirmedMeetUrl(event);
     if (row.google_meet_url) return confirmed === row.google_meet_url;
@@ -145,13 +143,6 @@ function rootEventMatches(event: RootCalendarEvent, row: RootMirrorRow, allowUns
     return !!row.google_meet_request_id && requestId === row.google_meet_request_id;
   }
   return !confirmedMeetUrl(event) && !conferenceData(event)?.createRequest;
-}
-function pendingMeetCompletionMatches(event: RootCalendarEvent, row: RootMirrorRow) {
-  const request = conferenceData(event)?.createRequest;
-  return row.google_meet_enabled === true && !!row.google_meet_request_id &&
-    request?.requestId === row.google_meet_request_id &&
-    (request.status?.statusCode === "pending" || request.status?.statusCode === "success") &&
-    rootEventMatches(event, row, true);
 }
 export type RootMirrorSyncResult = { googleMeetUrl: string | null; googleMeetPending: boolean };
 type WritableCalendarEvent = {
@@ -167,6 +158,35 @@ type WritableCalendarEvent = {
 function updateOptions(etag: string | null | undefined) { return etag ? { headers: { "If-Match": etag } } : undefined; }
 function notificationMode(current: WritableCalendarEvent, attendeeEmail: string | null) {
   return attendeeEmail || eventAttendeeEmails(current).length ? "all" as const : "none" as const;
+}
+function existingMeetStillMatches(current: WritableCalendarEvent, row: RootMirrorRow) {
+  if (!row.google_meet_enabled) return true;
+  const requestId = conferenceData(current)?.createRequest?.requestId;
+  return !!row.google_meet_request_id && requestId === row.google_meet_request_id &&
+    (!row.google_meet_url || confirmedMeetUrl(current) === row.google_meet_url);
+}
+function existingAttendeeIsExpected(current: WritableCalendarEvent, attendeeEmail: string | null) {
+  const emails = eventAttendeeEmails(current);
+  const expected = attendeeEmail ? [attendeeEmail] : [];
+  return JSON.stringify(emails) === JSON.stringify(expected) || emails.length === 0 || (!!attendeeEmail && emails.length === 1);
+}
+async function patchRootEvent(calendar: ReturnType<typeof calendarClient>, calendarId: string, eventId: string, current: WritableCalendarEvent, row: RootMirrorRow, attendeeEmail: string | null, requestBody: Record<string, unknown>, sendUpdates: "all" | "none") {
+  const startingAttendees = JSON.stringify(eventAttendeeEmails(current));
+  try {
+    const response = await calendar.events.patch({ calendarId, eventId, requestBody, sendUpdates }, updateOptions(current.etag));
+    return response.data as WritableCalendarEvent;
+  } catch (error) {
+    if (providerStatus(error) !== 412) throw error;
+    // The event changed between GET and PATCH. Re-read this exact deterministic
+    // event and retry once only if its Root ownership, attendee and Meet are intact.
+    const latest = (await calendar.events.get({ calendarId, eventId })).data as WritableCalendarEvent;
+    if (latest.id !== eventId || !ownsEvent(latest, row) || !existingMeetStillMatches(latest, row) ||
+      JSON.stringify(eventAttendeeEmails(latest)) !== startingAttendees || !existingAttendeeIsExpected(latest, attendeeEmail)) {
+      throw new Error("The Google event changed while syncing. Review the Root-owned event before retrying.");
+    }
+    const response = await calendar.events.patch({ calendarId, eventId, requestBody, sendUpdates }, updateOptions(latest.etag));
+    return response.data as WritableCalendarEvent;
+  }
 }
 
 export async function syncRootAppointment(organisationId: string, input: RootMirrorRow): Promise<RootMirrorSyncResult> {
@@ -199,7 +219,9 @@ export async function syncRootAppointment(organisationId: string, input: RootMir
     current = response.data as WritableCalendarEvent;
   }
   if (!current || current.id !== eventId || !ownsEvent(current, row)) throw new Error("The linked Google event is not verifiably owned by this Root appointment.");
-  if (row.google_calendar_etag && current.etag !== row.google_calendar_etag && !rootEventMatches(current, row) && !pendingMeetCompletionMatches(current, row)) throw new Error("The Google event changed outside Root. Review it in Google Calendar before retrying.");
+  // The stored ETag can lag Google even when the user is intentionally
+  // rescheduling this Root-owned event. Use the freshly fetched ETag below;
+  // ownership and the existing Meet/attendee identities remain hard checks.
 
   let currentConference = conferenceData(current);
   let meetUrl = confirmedMeetUrl(current);
@@ -240,15 +262,23 @@ export async function syncRootAppointment(organisationId: string, input: RootMir
   const body = rootGoogleEventBody(row, eventId, {
     includeAttendees: true,
     attendeeEmail: attendeeEmail && (!wantsConference || !!meetUrl) ? attendeeEmail : null,
-    ...(wantsConference && currentConference ? { conferenceData: currentConference as Record<string, unknown> } : {}),
     ...(!wantsConference && currentHasConference ? { clearConference: true } : {}),
   });
   const changed = !rootEventMatches(current, row);
   if (changed) {
-    const hasConferenceMutation = wantsConference || currentHasConference;
-    const response = await calendar.events.update({ calendarId, eventId, requestBody: body, sendUpdates: notificationMode(current, attendeeEmail), ...(hasConferenceMutation ? { conferenceDataVersion: 1 } : {}) }, updateOptions(current.etag));
-    current = response.data as WritableCalendarEvent;
+    if (wantsConference && !existingMeetStillMatches(current, row)) throw new Error("The Google Meet conference changed outside Root. Review it in Google Calendar before retrying.");
+    if (wantsConference && !existingAttendeeIsExpected(current, attendeeEmail)) throw new Error("The Google event attendee changed outside Root. Review it in Google Calendar before retrying.");
+    if (wantsConference || !currentHasConference) {
+      const patchBody = { ...body };
+      delete patchBody.id;
+      delete patchBody.conferenceData;
+      current = await patchRootEvent(calendar, calendarId, eventId, current, row, attendeeEmail, patchBody, notificationMode(current, attendeeEmail));
+    } else {
+      const response = await calendar.events.update({ calendarId, eventId, requestBody: body, sendUpdates: notificationMode(current, attendeeEmail), conferenceDataVersion: 1 }, updateOptions(current.etag));
+      current = response.data as WritableCalendarEvent;
+    }
     if (!ownsEvent(current, row)) throw new Error("Google did not preserve the Root event ownership marker.");
+    if (!rootEventMatches(current, row)) throw new Error("Google did not confirm the requested Root appointment update.");
     meetUrl = wantsConference ? confirmedMeetUrl(current) : null;
     if (wantsConference && !meetUrl) {
       await saveMirror(organisationId, row.id, { google_calendar_id: calendarId, google_calendar_event_id: eventId, google_calendar_etag: current.etag || null, google_calendar_sync_pending: true });
