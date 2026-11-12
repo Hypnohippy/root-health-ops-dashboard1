@@ -23,10 +23,10 @@ export class DraftStateChangedError extends Error {}
 
 /** Only draft generation may recover once from a stale queue; never send/action requests. */
 export async function generateOutreachDraft<Q extends { organisationId: string; revision: string; view?: string; items: LinkedInOutreachItem[]; recoveryItem?: LinkedInOutreachItem | null }>(
-  item: LinkedInOutreachItem, queue: Q, request: (input: string, init?: RequestInit) => Promise<Response>, signal: AbortSignal, canRecover: () => boolean,
+  item: LinkedInOutreachItem, queue: Q, request: (input: string, init?: RequestInit) => Promise<Response>, signal: AbortSignal, canRecover: () => boolean, variant = 0,
 ): Promise<{ message: string; refreshedQueue: Q | null }> {
   async function attempt(revision: string) {
-    const response = await request("/api/growth/linkedin-console", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision, action: "generate" }) });
+    const response = await request("/api/growth/linkedin-console", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision, action: "generate", variant }) });
     const data = await response.json();
     if (!response.ok) console.debug("LinkedIn draft generation rejected", JSON.stringify({ contactId: item.contactId, table: item.table, id: item.id, mode: item.mode, stage: item.stage, revision, status: response.status, body: data }));
     return { response, data };

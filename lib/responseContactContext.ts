@@ -91,8 +91,8 @@ export function responseDraftRules(context: ResponseContactContext, catchup = fa
     "Never imply prior dialogue and never say ‘glad to help’, ‘thanks for getting in touch’, or ‘following up on our conversation’."
   ];
   if (context.interactionType === "linkedin_connection_first_message") return [...common,
-    "This is the first outbound LinkedIn message after acceptance, not a reply. Day 0 uses the canonical code-owned recipient strategy; never replace it with generic sender copy.",
-    "No emojis, pitch, product explanation, question, meeting/demo/call ask or invented prior dialogue. Never imply prior dialogue. Invitation-note limits do not apply to post-acceptance messages.",
+    "This is the first outbound LinkedIn message after acceptance, not a reply. Choose the recipient family deterministically from verified canonical role/category context before preparing copy; never let a model invent the commercial strategy.",
+    "Use the approved family message: normally 50–110 words, never over 140; answer the verified role with one supported benefit and ask for a short 20-minute call next week. No links, emojis, bullets, pricing, unsupported recipient/company claims, fake personalisation, brochure copy or invented prior dialogue. Never imply prior dialogue.",
   ];
   if (context.interactionType === "linkedin_followup") return [...common, "This is a later LinkedIn follow-up. Continue from the recorded relationship stage rather than writing a first-connection opener."];
   if (context.interactionType === "email_reply") return [...common, "Reply directly to the inbound email and preserve its thread context."];

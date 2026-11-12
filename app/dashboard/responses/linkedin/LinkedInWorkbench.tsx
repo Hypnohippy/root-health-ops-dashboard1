@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { openAndCopyLinkedIn } from "@/lib/linkedinClipboard";
 import { tenantFetch } from "@/lib/tenantFetch";
 import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime, generateOutreachDraft, DraftStateChangedError } from "@/lib/linkedinWorkbench";
+import { linkedInFirstMessageAngle, linkedInFirstMessageFamily } from "@/lib/linkedinDayZero";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
 
 type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; recoveryItem?: LinkedInOutreachItem | null; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
@@ -23,6 +24,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
   const currentDraft = useRef(initialMessage);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
+  const draftVariant = useRef(0);
   const locked = useRef(false);
   const generationRequest = useRef<AbortController | null>(null);
   const post = useCallback(async (body: Record<string, unknown>, signal?: AbortSignal) => {
@@ -31,7 +33,7 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     if (!res.ok) throw Error(data.error || "Action could not be confirmed. Reload safely.");
     return data;
   }, [item.id, item.table, queue.organisationId, queue.revision]);
-  const generate = useCallback(async () => {
+  const generate = useCallback(async (variant = 0) => {
     generationRequest.current?.abort();
     const controller = new AbortController();
     generationRequest.current = controller;
@@ -39,12 +41,12 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
     const timeout = setTimeout(() => {
       if (token !== generation.current) return;
       generation.current++; controller.abort(); setBusy("");
-      setGenerationError("Draft generation timed out. Retry Refresh draft or type your message below.");
+      setGenerationError("Draft generation timed out. Retry or type your message below.");
     }, 45000);
     controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true });
     setBusy("generate"); setNotice(""); setGenerationError("");
     try {
-      const data = await generateOutreachDraft(item, queue, tenantFetch, controller.signal, () => token === generation.current && !receipt.current && !locked.current);
+      const data = await generateOutreachDraft(item, queue, tenantFetch, controller.signal, () => token === generation.current && !receipt.current && !locked.current, variant);
       if (typeof data.message !== "string" || !data.message.trim()) throw Error("No draft was returned. Retry or type your message below.");
       if (token === generation.current) { currentDraft.current = data.message; setMessage(data.message); onDraft(data.message); if (data.refreshedQueue) onQueueRecovered?.(data.refreshedQueue); }
     } catch (e) { if (token === generation.current) {
@@ -77,6 +79,8 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
       setNotice("Clipboard access failed. Your draft is unchanged. Use Copy message or press Ctrl+C / Cmd+C on the selected text.");
     }
   }
+  const roleAwareFirstMessage = item.stage === "connection" && item.mode === "fresh";
+  const suggestedAngle = roleAwareFirstMessage ? linkedInFirstMessageAngle(linkedInFirstMessageFamily(item.context)) : null;
   async function complete() {
     if (locked.current) return;
     locked.current = true; setBusy("complete"); setNotice("");
@@ -122,11 +126,12 @@ export function ContactCard({ item, queue, onNext, onReload, suspended, onWorkin
         finally { locked.current = false; setBusy(""); }
       }} />}
       {item.previousOutbound && <section aria-label="Confirmed previous outbound" className="rounded border border-white/15 p-3 text-sm"><h3 className="font-semibold">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Conversation history pasted" : "Previous message"}</h3><blockquote className="mt-2 whitespace-pre-wrap">{item.previousOutbound.message}</blockquote><p className="mt-2 text-slate-400">{item.previousOutbound.contentKind === "conversation_history_pasted" ? "Earliest verified outbound:" : "Sent:"} {when(item.previousOutbound.sentAt)} · {item.previousOutbound.source} · {item.previousOutbound.table}:{item.previousOutbound.id}</p><p>Current stage: {item.stage.replaceAll("_", " ")}</p></section>}
-      <label className="block text-sm font-medium" htmlFor="linkedin-message">{item.previousOutbound ? "Next draft" : "Message"} for {item.name}</label>
+      {roleAwareFirstMessage && <section aria-label="Suggested first message" className="rounded-lg border border-sky-400/30 bg-sky-950/30 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-200">Suggested angle: {suggestedAngle}</p><p className="mt-1 text-sm font-semibold text-white">Suggested first message</p></section>}
+      <label className="block text-sm font-medium" htmlFor="linkedin-message">{roleAwareFirstMessage ? "Suggested first message" : item.previousOutbound ? "Next draft" : "Message"} for {item.name}</label>
       {generationError && <div role="alert" id="linkedin-generation-error" className="rounded-lg border border-red-400 bg-red-950 p-3 text-sm text-white"><p className="font-semibold">Draft could not be generated</p><p>{generationError}</p><button className={`${button} mt-2`} disabled={suspended || !!busy} onClick={() => void onReload()}>Reload queue and retry draft</button></div>}
       {busy === "generate" && <p role="status">Preparing draft for {item.name}…</p>}
       <textarea aria-describedby={generationError ? "linkedin-generation-error" : undefined} aria-invalid={!!generationError} id="linkedin-message" ref={textarea} value={message} disabled={suspended || historical || busy === "complete" || uncertain} onChange={e => { generation.current++; generationRequest.current?.abort(); setBusy(""); currentDraft.current = e.target.value; setMessage(e.target.value); onDraft(e.target.value); }} className="min-h-32 w-full resize-y rounded-lg border border-white/20 bg-slate-950 p-3 text-sm leading-relaxed" />
-      <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || historical || !!busy || uncertain} onClick={() => void generate()}>{busy === "generate" ? "Preparing draft…" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
+      <div className="flex flex-wrap gap-2"><button className={button} disabled={suspended || historical || !!busy || uncertain} onClick={() => { if (roleAwareFirstMessage) { draftVariant.current = (draftVariant.current + 1) % 3; void generate(draftVariant.current); } else void generate(); }}>{busy === "generate" ? "Preparing draft…" : roleAwareFirstMessage ? "Regenerate" : "Refresh draft"}</button><button className={button} disabled={suspended || busy === "complete" || !message.trim()} onClick={() => void copy(false)}>Copy message</button></div>
       {notice && <p role="status" className="rounded-lg border border-amber-300/30 p-3 text-sm">{notice}</p>}
       {uncertain && <button className={button} onClick={() => void onReload()}>Reload current state safely</button>}
       <p className="text-xs text-slate-400">Paste and send manually in the separate LinkedIn tab. Sent now confirms a message you just sent. Use Already sent previously to reconcile LinkedIn history.</p>

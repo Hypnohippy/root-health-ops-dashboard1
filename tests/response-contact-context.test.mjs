@@ -15,10 +15,10 @@ test("LinkedIn acceptance is classified as a first outbound message with plain c
   assert.doesNotMatch(context.messageTypeLabel(type),/connection_accepted|day3_followup|linkedin_connection_network/);
 });
 
-test("first-message rules prohibit fake prior dialogue and aggressive pitching",()=>{
+test("first-message rules prohibit fake prior dialogue while using a proportionate call ask",()=>{
   const briefing={interactionType:"linkedin_connection_first_message",objective:"Open a relevant conversation."};
   const rules=context.responseDraftRules(briefing).join(" ");
-  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/No emojis, pitch, product explanation, question, meeting\/demo\/call ask/i);
+  assert.match(rules,/first outbound LinkedIn message/i); assert.match(rules,/not a reply/i); assert.match(rules,/never imply prior dialogue/i); assert.match(rules,/20-minute call next week/i);
 });
 
 test("interaction types require the current lifecycle instead of inferring from the event",()=>{
@@ -102,7 +102,7 @@ test('unchanged catch-up gate rejects networking filler while accepting natural 
   }
 });
 
-test('active root-coach endpoint replaces provider-dependent Day 0 with grounded code-owned copy', async()=>{
+test('active root-coach endpoint replaces provider-dependent Day 0 with role-family code-owned copy', async()=>{
  const briefing={interactionType:'linkedin_connection_first_message',connectionMode:'fresh',messageType:'First message after connection',company:'Acme',role:'HR director',name:'Shelley',objective:'Say hello',lifecycle:{canDraft:true,currentStage:'outreach_ready'}};
  for(const [draft,status] of [[jamesFiller,409],[jamesNatural,200],["Hi Shelley, great to connect here! What's top of mind at Acme?",409],['Hi Shelley, good to connect. I wanted to say hello to you at Acme properly.',200],["Hi Shelley, good to connect. I thought I’d say hello properly.",200],['Hi Shelley, good to connect. A hello to a fellow people leader.',200]]) {
   const mod={exports:{}};let providerCalls=0, reads=0;
@@ -113,8 +113,9 @@ test('active root-coach endpoint replaces provider-dependent Day 0 with grounded
   void status; // Former model-output cases must all produce the same safe contract now.
   assert.equal(result.status,200);assert.equal(providerCalls,0);assert.equal(reads,2);
   assert.equal(result.body.coachMessage,context.linkedInDayZeroMessage(briefing));
-  assert.match(result.body.coachMessage,/Hi Shelley, thanks for connecting/);
-  assert.match(result.body.coachMessage,/people and workplace wellbeing/);
-  assert.doesNotMatch(result.body.coachMessage,/[?]|\b(call|meeting|demo|thoughts|perspective)\b/i);
+  assert.match(result.body.coachMessage,/Hi Shelley — thanks for connecting/);
+  assert.match(result.body.coachMessage,/People teams/i);
+  assert.match(result.body.coachMessage,/short 20-minute call next week\?/i);
+  assert.doesNotMatch(result.body.coachMessage,/https?:|hope you(?:'|’)re well|pick your brain/i);
  }
 });

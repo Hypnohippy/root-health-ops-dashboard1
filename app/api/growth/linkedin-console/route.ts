@@ -53,10 +53,12 @@ export const POST = withTenantRoute(async (req, tenant) => {
   const current = selected!;
   if (current.stage === "connection" && !current.context.name?.trim()) return NextResponse.json({ error: "This connection has no saved name. Resolve the person’s name before generating a first message." }, { status: 409 });
   if (current.stage === "connection" && current.mode === "fresh") {
+    const firstMessageVariant = body.variant === undefined ? 0 : Number(body.variant);
+    if (!Number.isInteger(firstMessageVariant) || firstMessageVariant < 0 || firstMessageVariant > 2) return NextResponse.json({ error: "Invalid first-message variant." }, { status: 400 });
     // GET and POST share the same permission-filtered canonical professional facts.
     const [presented] = await linkedInOutreachDisplay(tenant, [current]);
     let message: string;
-    try { message = linkedInDayZeroMessage(presented.context); }
+    try { message = linkedInDayZeroMessage(presented.context, firstMessageVariant); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
     if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue.", code: "STALE_QUEUE_REVISION" }, { status: 409 });
     return NextResponse.json({ message });
