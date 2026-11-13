@@ -12,10 +12,13 @@ export function linkedInRecipientContext(organisationId: string, input: Lifecycl
   const canonical = lifecycleLinkedInIdentity(identity?.replace(/^linkedin:/, ""));
   const matching = canonical ? Object.values(input).flat().filter(row => row.organisation_id === organisationId && identities(row).length === 1 && identities(row)[0] === canonical) : [];
   const unique = (values: unknown[]) => { const valid = [...new Set(values.map(text).filter((value): value is string => !!value))]; return valid.length === 1 ? valid[0] : null; };
-  const evidence = matching.map(row => ({ row, meta: { ...object(row.raw), ...object(object(row.raw).metadata), ...object(row.metadata) } }));
+  const evidence = matching.map(row => ({ row, raw: object(row.raw), rawMeta: object(object(row.raw).metadata), meta: object(row.metadata) }));
+  const values = (items: unknown[]) => items.map(text).filter((value): value is string => !!value);
   return {
-    recipientCategory: unique(evidence.map(({ meta }) => meta.recipient_category)),
-    role: unique(evidence.map(({ row, meta }) => text(row.role_title) || text(meta.role_title) || text(meta.headline))),
-    company: unique(evidence.map(({ row, meta }) => text(row.company) || text(meta.company))),
+    recipientCategory: unique(values(evidence.flatMap(({ row, raw, rawMeta, meta }) => [row.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category]))),
+    // Consider every exact-identity field candidate. A role_title must not silently
+    // mask a contradictory imported headline on the same source row.
+    role: unique(values(evidence.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]))),
+    company: unique(values(evidence.flatMap(({ row, raw, rawMeta, meta }) => [row.company, raw.company, rawMeta.company, meta.company]))),
   };
 }

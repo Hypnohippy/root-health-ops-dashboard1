@@ -64,7 +64,7 @@ export function visibleTruthInput(input: TruthInput, policy: TruthPolicy): Truth
 }
 function identities(table: string, row: TruthRow) {
   const meta = obj(row.metadata), raw = obj(row.raw), engine = obj(row.engine_state);
-  const li = [row.linkedin_identity, row.linkedin_url, raw.profile_url, meta.profile_url, meta.linkedin_url, engine.linkedin_identity,
+  const li = [row.linkedin_identity, row.linkedin_url, raw.profile_url, raw.canonical_profile_url, meta.profile_url, meta.canonical_profile_url, meta.linkedin_url, engine.linkedin_identity,
     table === "acquisition_items" ? row.source_url : null, row.platform === "linkedin" ? row.permalink : null].map(lifecycleLinkedInIdentity).filter((v): v is string => !!v);
   const verifiedEmail = row.email_verified === true || meta.email_verification === "PASSED";
   // Gmail-backed sender evidence is structural; syntactically valid discovery guesses are not.

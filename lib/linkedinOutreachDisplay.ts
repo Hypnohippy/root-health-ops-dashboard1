@@ -44,10 +44,12 @@ export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], con
     const presentation = relationshipIdentityPresentation(truth);
     if (presentation.name.disputed || presentation.entityShape.entity_kind === "ambiguous") return professionalContext(item, null, null, null);
     const rows: LifecycleRow[] = [...Object.values(subset.lifecycle).flat(), ...subset.founder];
-    const fields = rows.map(row => ({ row, meta: { ...object(row.raw), ...object(object(row.raw).metadata), ...object(row.metadata) } }));
-    const role = consensus(fields.map(({ row, meta }) => text(row.role_title) || text(meta.role_title) || text(meta.headline)));
-    const company = consensus(fields.map(({ row, meta }) => text(row.company) || text(meta.company)));
-    const recipientCategory = consensus(fields.map(({ meta }) => meta.recipient_category));
+    const fields = rows.map(row => ({ row, raw: object(row.raw), rawMeta: object(object(row.raw).metadata), meta: object(row.metadata) }));
+    // Compare every value candidate from each exact-identity source. Field
+    // precedence must not hide conflicting role/headline/company evidence.
+    const role = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]));
+    const company = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.company, raw.company, rawMeta.company, meta.company]));
+    const recipientCategory = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category]));
     const recorded = linkedInDestination(rows);
     const destination = recorded && /\/messaging\//.test(recorded) ? recorded : item.destination;
     return { ...professionalContext(item, role, company, recipientCategory), destination, destinationKind: /\/messaging\//.test(destination) ? "messaging" : "profile" };

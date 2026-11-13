@@ -27,7 +27,7 @@ export function identityNodes(input: TruthInput, policy: TruthPolicy) {
 function company(table: string, r: TruthRow) { return r.entity_kind === "company" || table === "acquisition_items" && !r.person && !!r.company && r.record_type === "b2b_lead"; }
 function profiles(table: string, r: TruthRow) {
   const meta=object(r.metadata), raw=object(r.raw), rm=object(raw.metadata), engine=object(r.engine_state);
-  return uniq([r.linkedin_identity,r.linkedin_url,raw.profile_url,raw.linkedin_url,rm.profile_url,rm.linkedin_url,meta.profile_url,meta.linkedin_url,engine.linkedin_identity,table==="acquisition_items"?r.source_url:null,r.platform==="linkedin"?r.permalink:null].map(lifecycleLinkedInIdentity).filter((v):v is string=>!!v));
+  return uniq([r.linkedin_identity,r.linkedin_url,raw.profile_url,raw.canonical_profile_url,raw.linkedin_url,rm.profile_url,rm.canonical_profile_url,rm.linkedin_url,meta.profile_url,meta.canonical_profile_url,meta.linkedin_url,engine.linkedin_identity,table==="acquisition_items"?r.source_url:null,r.platform==="linkedin"?r.permalink:null].map(lifecycleLinkedInIdentity).filter((v):v is string=>!!v));
 }
 function verifiedEmails(r: TruthRow) {
   const meta=object(r.metadata);
