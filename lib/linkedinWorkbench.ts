@@ -21,10 +21,13 @@ export function removeBatchContact<T extends { contactId: string }>(items: T[], 
 
 export class DraftStateChangedError extends Error {}
 
+/** TEMPORARY, Preview-only forensic payload; removed with the diagnostic slice. */
+export type LinkedInProfessionalContextTracePayload = { version: string; organisationId: string; allowedInboxIds: string[]; records: unknown[] };
+
 /** Only draft generation may recover once from a stale queue; never send/action requests. */
 export async function generateOutreachDraft<Q extends { organisationId: string; revision: string; view?: string; items: LinkedInOutreachItem[]; recoveryItem?: LinkedInOutreachItem | null }>(
   item: LinkedInOutreachItem, queue: Q, request: (input: string, init?: RequestInit) => Promise<Response>, signal: AbortSignal, canRecover: () => boolean, variant = 0,
-): Promise<{ message: string; refreshedQueue: Q | null }> {
+): Promise<{ message: string; refreshedQueue: Q | null; professionalContextTrace?: LinkedInProfessionalContextTracePayload }> {
   async function attempt(revision: string) {
     const response = await request("/api/growth/linkedin-console", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organisationId: queue.organisationId, table: item.table, id: item.id, revision, action: "generate", variant }) });
     const data = await response.json();
@@ -49,5 +52,5 @@ export async function generateOutreachDraft<Q extends { organisationId: string; 
   if (result.data.code === "CONTACT_NOT_ELIGIBLE") throw new DraftStateChangedError(result.data.error);
   if (!result.response.ok) throw Error(result.data.error || "Draft generation failed. Retry or type your message below.");
   if (typeof result.data.message !== "string" || !result.data.message.trim()) throw Error("No draft was returned. Retry or type your message below.");
-  return { message: result.data.message, refreshedQueue };
+  return { message: result.data.message, refreshedQueue, ...(result.data.professionalContextTrace ? { professionalContextTrace: result.data.professionalContextTrace as LinkedInProfessionalContextTracePayload } : {}) };
 }

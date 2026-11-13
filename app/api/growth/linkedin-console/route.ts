@@ -12,6 +12,8 @@ import { linkedInOutreachQueue, type OutreachView } from "@/lib/linkedinOutreach
 import { responseDraftRules, safeLinkedInCatchupDraft, linkedInDayZeroMessage } from "@/lib/responseContactContext";
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
 import { generationMessages } from "@/lib/tenantGeneration";
+import { linkedInRecipientIdentity } from "@/lib/linkedinRecipientContext";
+import { buildLinkedInProfessionalContextTrace, LINKEDIN_CONTEXT_TRACE_INBOX_IDS, linkedInProfessionalContextTraceEnabled } from "@/lib/linkedinProfessionalContextTrace.server";
 
 export const runtime = "nodejs";
 async function revision(org: string) {
@@ -25,19 +27,36 @@ async function snapshot(org: string) {
   if (before !== await revision(org)) throw Error("State changed; reload the queue.");
   return { input, stale, revision: before };
 }
+/** TEMPORARY: inspect queue items only for exact identities on the four allowlisted accepted inbox rows. */
+function scopedContextTraceQueue(organisationId: string, input: Awaited<ReturnType<typeof snapshot>>["input"], self: Awaited<ReturnType<typeof readOutreachSelfIdentity>>, stale: ReadonlySet<string>) {
+  const acceptedIds = new Set<string>(LINKEDIN_CONTEXT_TRACE_INBOX_IDS);
+  const contactIds = new Set(input.inbox_items.filter(row => row.organisation_id === organisationId && acceptedIds.has(row.id))
+    .map(row => linkedInRecipientIdentity(row)).filter((identity): identity is string => !!identity)
+    .map(identity => JSON.stringify([organisationId, `linkedin:${identity}`])));
+  if (!contactIds.size) return [];
+  return linkedInOutreachQueue(organisationId, input, Date.now(), "all", [], Infinity, self, stale).items.filter(item => contactIds.has(item.contactId));
+}
 export const GET = withTenantRoute(async (req, tenant) => {
   const q = new URL(req.url).searchParams;
   const view = q.get("view") || "all";
   if (!["all", "fresh", "catchup", "followups"].includes(view)) return NextResponse.json({ error: "Invalid view." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
   const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self, state.stale);
+  const traceEnabled = linkedInProfessionalContextTraceEnabled(tenant.organisationId);
+  const traceQueue = traceEnabled ? scopedContextTraceQueue(tenant.organisationId, state.input, self, state.stale) : [];
   const recoveryContactId = q.get("recoveryContactId");
   const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self, state.stale).items.find(item => item.contactId === recoveryContactId) || null : undefined;
-  const enriched = await linkedInOutreachDisplay(tenant, [...queue.items, ...(recoveryItem ? [recoveryItem] : [])]);
+  const displayInput = [...new Map([...queue.items, ...(recoveryItem ? [recoveryItem] : []), ...traceQueue].map(item => [item.contactId, item])).values()];
+  const displayTrace: import("@/lib/linkedinOutreachDisplay").LinkedInOutreachDisplayTrace[] = [];
+  const enriched = await linkedInOutreachDisplay(tenant, displayInput, traceEnabled ? displayTrace : undefined);
+  const enrichedById = new Map(enriched.map(item => [item.contactId, item]));
   if (state.revision !== await revision(tenant.organisationId)) throw Error("State changed; reload the queue.");
-  queue.items = enriched.slice(0, queue.items.length);
-  const displayRecovery = recoveryItem ? enriched[enriched.length - 1] : recoveryItem;
-  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
+  queue.items = queue.items.map(item => enrichedById.get(item.contactId) || item);
+  const displayRecovery = recoveryItem ? enrichedById.get(recoveryItem.contactId) || recoveryItem : recoveryItem;
+  const professionalContextTrace = traceEnabled
+    ? buildLinkedInProfessionalContextTrace(state.input, tenant.organisationId, traceQueue, enriched.filter(item => traceQueue.some(candidate => candidate.contactId === item.contactId)), displayTrace)
+    : undefined;
+  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), ...(professionalContextTrace ? { professionalContextTrace } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
@@ -56,12 +75,21 @@ export const POST = withTenantRoute(async (req, tenant) => {
     const firstMessageVariant = body.variant === undefined ? 0 : Number(body.variant);
     if (!Number.isInteger(firstMessageVariant) || firstMessageVariant < 0 || firstMessageVariant > 2) return NextResponse.json({ error: "Invalid first-message variant." }, { status: 400 });
     // GET and POST share the same permission-filtered canonical professional facts.
-    const [presented] = await linkedInOutreachDisplay(tenant, [current]);
+    const traceEnabled = linkedInProfessionalContextTraceEnabled(tenant.organisationId);
+    const traceQueue = traceEnabled ? scopedContextTraceQueue(tenant.organisationId, state.input, self, state.stale) : [];
+    const traceCurrent = traceEnabled && traceQueue.some(item => item.contactId === current.contactId);
+    const displayInput = traceCurrent ? [...new Map([...traceQueue, current].map(item => [item.contactId, item])).values()] : [current];
+    const displayTrace: import("@/lib/linkedinOutreachDisplay").LinkedInOutreachDisplayTrace[] = [];
+    const displayed = await linkedInOutreachDisplay(tenant, displayInput, traceCurrent ? displayTrace : undefined);
+    const presented = displayed.find(item => item.contactId === current.contactId) || current;
     let message: string;
     try { message = linkedInDayZeroMessage(presented.context, firstMessageVariant); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
     if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue.", code: "STALE_QUEUE_REVISION" }, { status: 409 });
-    return NextResponse.json({ message });
+    const professionalContextTrace = traceCurrent
+      ? buildLinkedInProfessionalContextTrace(state.input, tenant.organisationId, traceQueue, displayed.filter(item => traceQueue.some(candidate => candidate.contactId === item.contactId)), displayTrace, { contactId: current.contactId, message })
+      : undefined;
+    return NextResponse.json({ message, ...(professionalContextTrace ? { professionalContextTrace } : {}) });
   }
   const followup = current.stage !== "connection";
   if (followup && !outboundConversationFacts(current.previousOutbound).usable) return NextResponse.json({ error: "The actual latest outbound is not confirmed separately. Review the recorded history or type your message below. Your draft is unchanged." }, { status: 409 });

@@ -5,7 +5,11 @@ import vm from "node:vm";
 import ts from "typescript";
 function load(file, deps = {}, globals = {}) {
  deps["@/lib/operationalRetention.server"] ||= {readProactiveRetention:async()=>new Set()};
- if (file === "app/api/growth/linkedin-console/route.ts") deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
+ if (file === "app/api/growth/linkedin-console/route.ts") {
+  deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
+  deps["@/lib/linkedinRecipientContext"] ||= load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});
+  deps["@/lib/linkedinProfessionalContextTrace.server"] ||= {LINKEDIN_CONTEXT_TRACE_INBOX_IDS:[],linkedInProfessionalContextTraceEnabled:()=>false,buildLinkedInProfessionalContextTrace:()=>undefined};
+ }
  deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};
  if (!deps["@/lib/linkedinDayZero"]) deps["@/lib/linkedinDayZero"] = file === "lib/linkedinDayZero.ts" ? {} : load("lib/linkedinDayZero.ts", {"@/lib/linkedinDayZero": {}});
