@@ -26,6 +26,23 @@ function professionalContext(item: LinkedInOutreachItem, role: string | null, co
 function queuedProfessionalContext(item: LinkedInOutreachItem) {
   return professionalContext(item, item.context.role ?? null, item.context.company ?? null, item.context.recipientCategory ?? null);
 }
+/**
+ * When the relationship projection is ambiguous, only facts on this exact
+ * LinkedIn source row may survive. Do not carry queue context across a
+ * keep-separate boundary or use neighbouring records to resolve ambiguity.
+ */
+function anchoredProfessionalContext(item: LinkedInOutreachItem, context: DiscoveryContext) {
+  const anchor = context.input.lifecycle[item.table]?.find(row => row.id === item.id);
+  if (!anchor || !linkedInRecipientIdentity(anchor)) return professionalContext(item, null, null, null);
+  const raw = object(anchor.raw), rawMeta = object(raw.metadata), meta = object(anchor.metadata);
+  const roleValues = [anchor.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline].map(text).filter(Boolean);
+  const companyValues = [anchor.company, raw.company, rawMeta.company, meta.company].map(text).filter(Boolean);
+  const categoryValues = [anchor.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category].map(text).filter(Boolean);
+  const role = roleValues.length ? professionalRoleConsensus(roleValues) : null;
+  const company = companyValues.length ? consensus(companyValues) : null;
+  const recipientCategory = categoryValues.length ? consensus(categoryValues) : null;
+  return professionalContext(item, role, company, recipientCategory);
+}
 /** Existing Truth partitions authorize presentation/Day 0 facts, never eligibility or receipts. */
 export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], context: DiscoveryContext) {
   const visible = visibleTruthInput(context.input, context.policy);
@@ -44,12 +61,12 @@ export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], con
     // A missing display partition supplies no contradictory evidence. Keep the
     // exact-identity context already resolved by the outreach queue in that case.
     if (group === undefined) return queuedProfessionalContext(item);
-    if (ambiguousGroups.has(group)) return professionalContext(item, null, null, null);
+    if (ambiguousGroups.has(group)) return anchoredProfessionalContext(item, context);
     const included = new Set(partition.groups[group]);
     const subset: TruthInput = { ...safe, lifecycle: Object.fromEntries(tables.map(table => [table, safe.lifecycle[table].filter(row => included.has(table + ":" + row.id))])) as TruthInput["lifecycle"], founder: safe.founder.filter(row => included.has("founder_research_records:" + row.id)) };
     const truth = truthWithIdentityDecisions(subset, { table: item.table, id: item.id }, context.policy, decisions, { ...partition, input: subset });
     const presentation = relationshipIdentityPresentation(truth);
-    if (presentation.entityShape.entity_kind === "ambiguous") return professionalContext(item, null, null, null);
+    if (presentation.entityShape.entity_kind === "ambiguous") return anchoredProfessionalContext(item, context);
     if (presentation.name.disputed) {
       // A name disagreement does not erase facts independently sourced from
       // one acceptance plus acquisition evidence on the selected exact LinkedIn

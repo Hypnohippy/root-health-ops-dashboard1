@@ -178,16 +178,26 @@ test('Production GET route and server display retain accepted-row and exact acqu
  const input={
   inbox_items:[
    makeAccepted('a1111111-1111-4111-8111-111111111111','Paul','uk.linkedin.com/in/paulmcgrathuk',{canonical_profile_url:'uk.linkedin.com/in/paulmcgrathuk',headline:'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR'}),
-   makeAccepted('b2222222-2222-4222-8222-222222222222','Gabriela','linkedin.com/in/gabriela-hr',{canonical_profile_url:'linkedin.com/in/gabriela-hr'}),
+   makeAccepted('b2222222-2222-4222-8222-222222222222','Gabriela','linkedin.com/in/gabriela-hr',{canonical_profile_url:'linkedin.com/in/gabriela-hr',headline:'HR Generalist'}),
    makeAccepted('c3333333-3333-4333-8333-333333333333','Louise','linkedin.com/in/louise-hr',{canonical_profile_url:'linkedin.com/in/louise-hr',headline:'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...'}),
    makeAccepted('d4444444-4444-4444-8444-444444444444','Vicky Smith','linkedin.com/in/vicky-no-role',{canonical_profile_url:'linkedin.com/in/vicky-no-role'}),
   ],growth_targets:[],acquisition_items:[
    {id:'e5555555-5555-4555-8555-555555555555',organisation_id:org,person:'Gabriela',source_url:'https://www.linkedin.com/in/gabriela-hr',metadata:{headline:'HR Generalist'}},
   ]
  };
+ const separated=[];
+ for(const accepted of input.inbox_items){
+  let acquisition=input.acquisition_items.find(row=>row.source_url?.includes(accepted.linkedin_identity));
+  if(!acquisition){
+   acquisition={id:`f5555555-5555-4555-8555-${accepted.id.split('-').at(-1)}`,organisation_id:org,person:accepted.author_name,source_url:`https://www.${accepted.linkedin_identity}`,metadata:{}};
+   input.acquisition_items.push(acquisition);
+  }
+  const alias=accepted.linkedin_identity;
+  separated.push({id:`decision-${accepted.id}`,organisation_id:org,source_ref_a:{table:'inbox_items',id:accepted.id},source_ref_b:{table:'acquisition_items',id:acquisition.id},decision:'keep_separate',reviewed_evidence_ids:[`inbox_items:${accepted.id}`,`acquisition_items:${acquisition.id}`],evidence_summary:'Synthetic exact-profile separation fixture',actor_user_id:'reviewer',created_at:'2026-11-12T12:00:00.000Z',decided_at:'2026-11-12T12:00:00.000Z',revision:1,note:null,supersedes_decision_id:null,candidate_revision:'fixture',alias_bindings:{a:[{type:'linkedin',value:alias}],b:[{type:'linkedin',value:alias}]},founder_only:false,idempotency_key:`separation-${accepted.id}`});
+ }
  const displayServer=loadTruthModule('lib/linkedinOutreachDisplay.server.ts',{
   '@/lib/relationshipWorkspace.server':{relationshipContext:async()=>({input,founder:[],workspaces:[],links:[],canFounder:false})},
-  '@/lib/opsSearch.server':{readTenantHistory:async()=>[]},
+  '@/lib/opsSearch.server':{readTenantHistory:async()=>separated},
  });
  const api=loadTruthModule('app/api/growth/linkedin-console/route.ts',{
   'next/server':{NextResponse:{json}},
