@@ -5,6 +5,7 @@ import { visibleTruthInput, type TruthInput } from "@/lib/relationshipTruth";
 import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
 import { projectRelationships } from "@/lib/relationshipWorkspace";
 import { linkedInDestination, type LinkedInOutreachItem } from "@/lib/linkedinOutreach";
+import { linkedInRecipientContext, linkedInRecipientIdentity, professionalRoleConsensus } from "@/lib/linkedinRecipientContext";
 import type { LifecycleRow } from "@/lib/contactLifecycle";
 
 const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
@@ -42,12 +43,24 @@ export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], con
     const subset: TruthInput = { ...safe, lifecycle: Object.fromEntries(tables.map(table => [table, safe.lifecycle[table].filter(row => included.has(table + ":" + row.id))])) as TruthInput["lifecycle"], founder: safe.founder.filter(row => included.has("founder_research_records:" + row.id)) };
     const truth = truthWithIdentityDecisions(subset, { table: item.table, id: item.id }, context.policy, decisions, { ...partition, input: subset });
     const presentation = relationshipIdentityPresentation(truth);
-    if (presentation.name.disputed || presentation.entityShape.entity_kind === "ambiguous") return professionalContext(item, null, null, null);
+    if (presentation.entityShape.entity_kind === "ambiguous") return professionalContext(item, null, null, null);
+    if (presentation.name.disputed) {
+      // A name disagreement does not erase facts independently sourced from
+      // one acceptance plus acquisition evidence on the selected exact LinkedIn
+      // identity. Multiple competing acceptances remain fully fail-closed.
+      const anchor = subset.lifecycle[item.table].find(row => row.id === item.id);
+      const identity = anchor ? linkedInRecipientIdentity(anchor) : null;
+      const exactContext = linkedInRecipientContext(context.policy.organisationId, subset.lifecycle, identity);
+      const exactAcceptances = subset.lifecycle.inbox_items.filter(row => row.kind === "connection_accepted" && linkedInRecipientIdentity(row) === identity);
+      const exactAcquisitions = subset.lifecycle.acquisition_items.filter(row => linkedInRecipientIdentity(row) === identity);
+      if (identity && exactAcceptances.length === 1 && exactAcquisitions.length > 0) return professionalContext(item, exactContext.role, null, null);
+      return professionalContext(item, null, null, null);
+    }
     const rows: LifecycleRow[] = [...Object.values(subset.lifecycle).flat(), ...subset.founder];
     const fields = rows.map(row => ({ row, raw: object(row.raw), rawMeta: object(object(row.raw).metadata), meta: object(row.metadata) }));
     // Compare every value candidate from each exact-identity source. Field
     // precedence must not hide conflicting role/headline/company evidence.
-    const role = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]));
+    const role = professionalRoleConsensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]));
     const company = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.company, raw.company, rawMeta.company, meta.company]));
     const recipientCategory = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category]));
     const recorded = linkedInDestination(rows);

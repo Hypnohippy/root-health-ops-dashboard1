@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {loadTruthModule} from './relationship-truth-loader.mjs';
 const {linkedInOutreachQueue:queue}=loadTruthModule('lib/linkedinOutreach.ts');
 const {enrichLinkedInOutreachDisplay:enrich}=loadTruthModule('lib/linkedinOutreachDisplay.ts');
+const {lifecycleLinkedInIdentity}=loadTruthModule('lib/contactLifecycle.ts');
 const {linkedInDayZeroMessage:dayZero}=loadTruthModule('lib/linkedinDayZero.ts');
 const {linkedInFirstMessageFamily:family}=loadTruthModule('lib/linkedinDayZero.ts');
 const {outreachDraftKey}=loadTruthModule('lib/linkedinWorkbench.ts');
@@ -50,6 +51,30 @@ test('Console Truth projection keeps exact canonical-profile metadata attached t
  assert.equal(shown.context.role,'People Director');assert.equal(shown.context.company,'Synthetic Employer');
  assert.equal(family(shown.context),'people_leader');
 });
+test('Paul exact-identity accepted headline wins over a visibly truncated acquisition headline',()=>{
+ const acceptedUrl='uk.linkedin.com/in/paulmcgrathuk';
+ const normalized='linkedin.com/in/paulmcgrathuk';
+ const sourceUrl='https://www.linkedin.com/in/paulmcgrathuk';
+ assert.equal(lifecycleLinkedInIdentity(acceptedUrl),normalized);
+ assert.equal(lifecycleLinkedInIdentity(`https://${normalized}`),normalized);
+ assert.equal(lifecycleLinkedInIdentity(sourceUrl),normalized);
+ const f=fixture(false,null,null),acceptance=f.input.inbox_items[0];
+ Object.assign(acceptance,{author_name:'Paul',linkedin_identity:acceptedUrl,permalink:sourceUrl,raw:{canonical_profile_url:acceptedUrl,headline:'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR'}});
+ f.input.inbox_items=[acceptance];
+ f.input.acquisition_items.push({id:'33333333-3333-4333-8333-333333333333',organisation_id:org,person:'Paul M.',source_url:sourceUrl,metadata:{headline:'Chartered FCIPD HR Consultant & HR…'}});
+ const raw=queue(org,f.input,f.now).items[0];
+ assert.equal(raw.context.role,'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR');
+ const shown=enrich([raw],f.context)[0];
+ assert.equal(shown.context.role,raw.context.role);
+ assert.equal(family(shown.context),'hr_consultant');
+});
+test('Vicky exact identity without professional evidence remains General',()=>{
+ const f=fixture(false,null,null),acceptance=f.input.inbox_items[0];
+ Object.assign(acceptance,{author_name:'Vicky Smith',linkedin_identity:'uk.linkedin.com/in/vickysmith',permalink:'https://www.linkedin.com/in/vickysmith',raw:{canonical_profile_url:'uk.linkedin.com/in/vickysmith'}});
+ const shown=enrich(queue(org,f.input,f.now).items,f.context)[0];
+ assert.equal(shown.context.role,null);
+ assert.equal(family(shown.context),'general');
+});
 test('same exact identity with contradictory role fields on one record fails closed',()=>{
  const f=fixture(false,null,null);
  Object.assign(f.input.inbox_items[0],{role_title:'Chief Executive',raw:{profile_url:`https://${profile}`,headline:'People Director'}});
@@ -57,6 +82,14 @@ test('same exact identity with contradictory role fields on one record fails clo
  assert.equal(raw.context.role,null);
  const shown=enrich([raw],f.context)[0];
  assert.equal(shown.context.role,null);assert.equal(family(shown.context),'general');
+});
+test('a truncated but genuinely different role claim still fails closed',()=>{
+ const f=fixture(false,null,null),acceptance=f.input.inbox_items[0];
+ acceptance.raw={profile_url:`https://${profile}`,headline:'Chartered HR Consultant…'};
+ f.input.acquisition_items.push({id:'33333333-3333-4333-8333-333333333333',organisation_id:org,person:'Zoë',source_url:`https://www.${profile}`,metadata:{headline:'Chief Executive'}});
+ const shown=enrich(queue(org,f.input,f.now).items,f.context)[0];
+ assert.equal(shown.context.role,null);
+ assert.equal(family(shown.context),'general');
 });
 test('a misleading former-company fragment in the accepted headline is never projected as company',()=>{
  const f=fixture(false,null,null);
