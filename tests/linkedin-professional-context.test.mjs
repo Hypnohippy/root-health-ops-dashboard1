@@ -41,6 +41,35 @@ test('strong agreed recorded HR context remains grounded and display/generation 
  assert.equal(dayZero(shown.context),dayZero({name:'Zoë',role:'Head of People',company:'Synthetic Employer'}));
  assert.match(dayZero(shown.context),/People teams/);
 });
+test('queue professional context survives when display Truth has no matching record',()=>{
+ const f=fixture(false,'Head of People','Synthetic Employer'),acceptance=f.input.inbox_items[0];
+ acceptance.raw.recipient_category='people_leader';
+ const queued=queue(org,f.input,f.now).items[0];
+ assert.equal(queued.context.role,'Head of People');
+ assert.equal(queued.context.company,'Synthetic Employer');
+ assert.equal(queued.context.recipientCategory,'people_leader');
+ const noDisplayEvidence={...f.context,input:{...f.context.input,lifecycle:{inbox_items:[],growth_targets:[],acquisition_items:[]}}};
+ const shown=enrich([queued],noDisplayEvidence)[0];
+ assert.equal(shown.role,'Head of People');assert.equal(shown.company,'Synthetic Employer');
+ assert.equal(shown.context.role,'Head of People');assert.equal(shown.context.company,'Synthetic Employer');
+ assert.equal(shown.context.recipientCategory,'people_leader');
+ const noRoleProjection={...f.input,inbox_items:f.input.inbox_items.map(row=>({...row,raw:{profile_url:`https://${profile}`}}))};
+ const noRoleTruth={...f.context,input:{...f.context.input,lifecycle:noRoleProjection}};
+ const shownWithoutTruthRole=enrich([queued],noRoleTruth)[0];
+ assert.equal(shownWithoutTruthRole.context.role,'Head of People');
+ assert.equal(shownWithoutTruthRole.context.company,'Synthetic Employer');
+ assert.equal(shownWithoutTruthRole.context.recipientCategory,'people_leader');
+});
+test('verified display contradiction with queue role remains fail-closed',()=>{
+ const f=fixture(false,'Head of People','Synthetic Employer'),acceptance=f.input.inbox_items[0];
+ acceptance.raw.recipient_category='people_leader';
+ const queued=queue(org,f.input,f.now).items[0];
+ const contradictory={...f.input,inbox_items:f.input.inbox_items.map(row=>({...row,raw:{profile_url:`https://${profile}`,headline:'Chief Executive',company:'Synthetic Employer',recipient_category:'people_leader'}}))};
+ const truth={...f.context,input:{...f.context.input,lifecycle:contradictory}};
+ const shown=enrich([queued],truth)[0];
+ assert.equal(shown.role,null);assert.equal(shown.context.role,null);
+ assert.equal(family(shown.context),'general');
+});
 test('Console Truth projection keeps exact canonical-profile metadata attached to a fresh acceptance',()=>{
  const f=fixture(false,null,null);
  f.input.acquisition_items.push({id:'33333333-3333-4333-8333-333333333333',organisation_id:org,person:'Zoë',company:'Synthetic Employer',raw:{canonical_profile_url:`https://${profile}`},metadata:{headline:'People Director'}});
@@ -142,4 +171,44 @@ test('GET and actual fresh POST share canonical facts with no provider, send or 
  // Reloading a read-only queue does not record contact or suppress it.
  assert.equal((await api.GET({url:'https://fixture.invalid/api/growth/linkedin-console?view=all'})).body.total,1);
  const skipped=queue(org,f.input,f.now,'all',[item.contactId]);assert.equal(skipped.items.length,0);
+});
+test('Production GET route and server display retain accepted-row and exact acquisition roles',async()=>{
+ const json=(body,opt={})=>({body,status:opt.status||200}),tenant={organisationId:org,userId:'actor'};
+ const makeAccepted=(id,name,identity,raw={})=>({id,organisation_id:org,platform:'linkedin',kind:'connection_accepted',author_name:name,linkedin_identity:identity,permalink:`https://www.${identity}`,status:'needs_reply',response_state:'needs_reply',created_at_platform:new Date(Date.now()-3600000).toISOString(),raw});
+ const input={
+  inbox_items:[
+   makeAccepted('a1111111-1111-4111-8111-111111111111','Paul','uk.linkedin.com/in/paulmcgrathuk',{canonical_profile_url:'uk.linkedin.com/in/paulmcgrathuk',headline:'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR'}),
+   makeAccepted('b2222222-2222-4222-8222-222222222222','Gabriela','linkedin.com/in/gabriela-hr',{canonical_profile_url:'linkedin.com/in/gabriela-hr'}),
+   makeAccepted('c3333333-3333-4333-8333-333333333333','Louise','linkedin.com/in/louise-hr',{canonical_profile_url:'linkedin.com/in/louise-hr',headline:'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...'}),
+   makeAccepted('d4444444-4444-4444-8444-444444444444','Vicky Smith','linkedin.com/in/vicky-no-role',{canonical_profile_url:'linkedin.com/in/vicky-no-role'}),
+  ],growth_targets:[],acquisition_items:[
+   {id:'e5555555-5555-4555-8555-555555555555',organisation_id:org,person:'Gabriela',source_url:'https://www.linkedin.com/in/gabriela-hr',metadata:{headline:'HR Generalist'}},
+  ]
+ };
+ const displayServer=loadTruthModule('lib/linkedinOutreachDisplay.server.ts',{
+  '@/lib/relationshipWorkspace.server':{relationshipContext:async()=>({input,founder:[],workspaces:[],links:[],canFounder:false})},
+  '@/lib/opsSearch.server':{readTenantHistory:async()=>[]},
+ });
+ const api=loadTruthModule('app/api/growth/linkedin-console/route.ts',{
+  'next/server':{NextResponse:{json}},
+  '@/lib/tenantRoute.server':{withTenantRoute:handler=>request=>handler(request,tenant)},
+  '@/lib/operationalRetention.server':{readProactiveRetention:async()=>new Set()},
+  '@/lib/supabaseAdmin':{supabaseAdmin:{from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{revision:'1'}})})})})}},
+  '@/lib/lifecycleSnapshot.server':{readLifecycleInput:async()=>input},
+  '@/lib/outreachSelfIdentity.server':{readOutreachSelfIdentity:async()=>({names:[],emails:[],linkedinProfiles:[],linkedinAccountIds:[]})},
+  '@/lib/linkedinOutreachDisplay.server':displayServer,
+  '@/lib/linkedinSendReconciliation.server':{reconcileLinkedInSend:()=>assert.fail('GET must not reconcile sends')},
+  '@/lib/organisationProfile.server':{getOrganisationGenerationProfile:()=>assert.fail('GET must not load a provider profile')},
+ });
+ const response=await api.GET({url:'https://fixture.invalid/api/growth/linkedin-console?view=fresh'});
+ assert.equal(response.status,200);
+ const items=new Map(response.body.items.map(item=>[item.name,item]));
+ assert.equal(items.get('Paul').role,'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR');
+ assert.equal(family(items.get('Paul').context),'hr_consultant');
+ assert.equal(items.get('Gabriela').role,'HR Generalist');
+ assert.equal(family(items.get('Gabriela').context),'people_leader');
+ assert.equal(items.get('Louise').role,'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...');
+ assert.equal(family(items.get('Louise').context),'hr_consultant');
+ assert.equal(items.get('Vicky Smith').role,null);
+ assert.equal(family(items.get('Vicky Smith').context),'general');
 });

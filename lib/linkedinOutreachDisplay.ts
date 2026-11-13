@@ -5,7 +5,7 @@ import { visibleTruthInput, type TruthInput } from "@/lib/relationshipTruth";
 import { relationshipIdentityPresentation } from "@/lib/relationshipIdentityPresentation";
 import { projectRelationships } from "@/lib/relationshipWorkspace";
 import { linkedInDestination, type LinkedInOutreachItem } from "@/lib/linkedinOutreach";
-import { linkedInRecipientContext, linkedInRecipientIdentity, professionalRoleConsensus } from "@/lib/linkedinRecipientContext";
+import { linkedInRecipientIdentity, professionalRoleConsensus } from "@/lib/linkedinRecipientContext";
 import type { LifecycleRow } from "@/lib/contactLifecycle";
 
 const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
@@ -23,6 +23,9 @@ function professionalContext(item: LinkedInOutreachItem, role: string | null, co
     ? { ...item, role, company, reason, context: { ...item.context, role, company, recipientCategory, whyRelevant: reason } }
     : { ...item, role, company };
 }
+function queuedProfessionalContext(item: LinkedInOutreachItem) {
+  return professionalContext(item, item.context.role ?? null, item.context.company ?? null, item.context.recipientCategory ?? null);
+}
 /** Existing Truth partitions authorize presentation/Day 0 facts, never eligibility or receipts. */
 export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], context: DiscoveryContext) {
   const visible = visibleTruthInput(context.input, context.policy);
@@ -38,7 +41,10 @@ export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], con
   }
   return items.map(item => {
     const group = partition.byRef.get(item.table + ":" + item.id);
-    if (group === undefined || ambiguousGroups.has(group)) return professionalContext(item, null, null, null);
+    // A missing display partition supplies no contradictory evidence. Keep the
+    // exact-identity context already resolved by the outreach queue in that case.
+    if (group === undefined) return queuedProfessionalContext(item);
+    if (ambiguousGroups.has(group)) return professionalContext(item, null, null, null);
     const included = new Set(partition.groups[group]);
     const subset: TruthInput = { ...safe, lifecycle: Object.fromEntries(tables.map(table => [table, safe.lifecycle[table].filter(row => included.has(table + ":" + row.id))])) as TruthInput["lifecycle"], founder: safe.founder.filter(row => included.has("founder_research_records:" + row.id)) };
     const truth = truthWithIdentityDecisions(subset, { table: item.table, id: item.id }, context.policy, decisions, { ...partition, input: subset });
@@ -50,19 +56,29 @@ export function enrichLinkedInOutreachDisplay(items: LinkedInOutreachItem[], con
       // identity. Multiple competing acceptances remain fully fail-closed.
       const anchor = subset.lifecycle[item.table].find(row => row.id === item.id);
       const identity = anchor ? linkedInRecipientIdentity(anchor) : null;
-      const exactContext = linkedInRecipientContext(context.policy.organisationId, subset.lifecycle, identity);
       const exactAcceptances = subset.lifecycle.inbox_items.filter(row => row.kind === "connection_accepted" && linkedInRecipientIdentity(row) === identity);
       const exactAcquisitions = subset.lifecycle.acquisition_items.filter(row => linkedInRecipientIdentity(row) === identity);
-      if (identity && exactAcceptances.length === 1 && exactAcquisitions.length > 0) return professionalContext(item, exactContext.role, null, null);
+      if (identity && exactAcceptances.length === 1 && exactAcquisitions.length > 0) {
+        const exactRows = Object.values(subset.lifecycle).flat().filter(row => linkedInRecipientIdentity(row) === identity);
+        const roleValues = exactRows.flatMap(row => {
+          const raw = object(row.raw), rawMeta = object(raw.metadata), meta = object(row.metadata);
+          return [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline];
+        }).map(text).filter(Boolean);
+        const role = roleValues.length ? professionalRoleConsensus([...roleValues, item.context.role]) : item.context.role ?? null;
+        return professionalContext(item, role, null, null);
+      }
       return professionalContext(item, null, null, null);
     }
     const rows: LifecycleRow[] = [...Object.values(subset.lifecycle).flat(), ...subset.founder];
     const fields = rows.map(row => ({ row, raw: object(row.raw), rawMeta: object(object(row.raw).metadata), meta: object(row.metadata) }));
     // Compare every value candidate from each exact-identity source. Field
     // precedence must not hide conflicting role/headline/company evidence.
-    const role = professionalRoleConsensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]));
-    const company = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.company, raw.company, rawMeta.company, meta.company]));
-    const recipientCategory = consensus(fields.flatMap(({ row, raw, rawMeta, meta }) => [row.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category]));
+    const roleValues = fields.flatMap(({ row, raw, rawMeta, meta }) => [row.role_title, raw.role_title, raw.headline, rawMeta.role_title, rawMeta.headline, meta.role_title, meta.headline]).map(text).filter(Boolean);
+    const companyValues = fields.flatMap(({ row, raw, rawMeta, meta }) => [row.company, raw.company, rawMeta.company, meta.company]).map(text).filter(Boolean);
+    const categoryValues = fields.flatMap(({ row, raw, rawMeta, meta }) => [row.recipient_category, raw.recipient_category, rawMeta.recipient_category, meta.recipient_category]).map(text).filter(Boolean);
+    const role = roleValues.length ? professionalRoleConsensus([...roleValues, item.context.role]) : item.context.role ?? null;
+    const company = companyValues.length ? consensus([...companyValues, item.context.company]) : item.context.company ?? null;
+    const recipientCategory = categoryValues.length ? consensus([...categoryValues, item.context.recipientCategory]) : item.context.recipientCategory ?? null;
     const recorded = linkedInDestination(rows);
     const destination = recorded && /\/messaging\//.test(recorded) ? recorded : item.destination;
     return { ...professionalContext(item, role, company, recipientCategory), destination, destinationKind: /\/messaging\//.test(destination) ? "messaging" : "profile" };

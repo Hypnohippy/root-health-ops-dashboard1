@@ -14,13 +14,6 @@ import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.serv
 import { generationMessages } from "@/lib/tenantGeneration";
 
 export const runtime = "nodejs";
-const LINKEDIN_ROLE_TRACE_ORGANISATION = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
-const LINKEDIN_ROLE_TRACE_INBOX_IDS = [
-  "9a14f3db-5dd7-4c43-94f9-7388cbf41bb2", // Paul
-  "2048e384-5466-4782-b104-6e303372b762", // Gabriela
-  "58af563b-5722-4210-8bfe-ec6a0561e9a6", // Louise
-  "0f7b10bb-4f5c-4707-bd58-c0eb5afc482c", // Vicky
-] as const;
 async function revision(org: string) {
   const { data, error } = await supabaseAdmin.from("lifecycle_revisions").select("revision").eq("organisation_id", org).maybeSingle();
   if (error) throw error;
@@ -38,35 +31,13 @@ export const GET = withTenantRoute(async (req, tenant) => {
   if (!["all", "fresh", "catchup", "followups"].includes(view)) return NextResponse.json({ error: "Invalid view." }, { status: 400 });
   const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
   const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), view as OutreachView, q.getAll("skip").slice(0,500), 10, self, state.stale);
-  const roleTrace = tenant.organisationId === LINKEDIN_ROLE_TRACE_ORGANISATION && q.get("roleLossTrace") === "1"
-    ? (() => {
-      const ids = new Set<string>(LINKEDIN_ROLE_TRACE_INBOX_IDS);
-      const traceQueue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self, state.stale);
-      const queuedById = new Map(traceQueue.items.filter(item => item.table === "inbox_items" && ids.has(item.id)).map(item => [item.id, item]));
-      return LINKEDIN_ROLE_TRACE_INBOX_IDS.map(id => {
-        const row = state.input.inbox_items.find(item => item.id === id);
-        const raw = row?.raw && typeof row.raw === "object" ? row.raw as Record<string, unknown> : {};
-        const item = queuedById.get(id);
-        return {
-          id,
-          raw: { headline: typeof raw.headline === "string" ? raw.headline : null, company: typeof raw.company === "string" ? raw.company : null },
-          queue: item ? {
-            contactId: item.contactId,
-            role: item.role,
-            company: item.company,
-            context: { role: item.context.role, company: item.context.company, recipientCategory: item.context.recipientCategory ?? null },
-          } : null,
-        };
-      });
-    })()
-    : undefined;
   const recoveryContactId = q.get("recoveryContactId");
   const recoveryItem = recoveryContactId ? linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "all", [], Infinity, self, state.stale).items.find(item => item.contactId === recoveryContactId) || null : undefined;
   const enriched = await linkedInOutreachDisplay(tenant, [...queue.items, ...(recoveryItem ? [recoveryItem] : [])]);
   if (state.revision !== await revision(tenant.organisationId)) throw Error("State changed; reload the queue.");
   queue.items = enriched.slice(0, queue.items.length);
   const displayRecovery = recoveryItem ? enriched[enriched.length - 1] : recoveryItem;
-  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), ...(roleTrace ? { roleTrace } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
