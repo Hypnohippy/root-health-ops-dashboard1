@@ -8,7 +8,6 @@ function load(file, deps = {}, globals = {}) {
  if (file === "app/api/growth/linkedin-console/route.ts") {
   deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
   deps["@/lib/linkedinRecipientContext"] ||= load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});
-  deps["@/lib/linkedinProfessionalContextTrace.server"] ||= {LINKEDIN_CONTEXT_TRACE_INBOX_IDS:[],linkedInProfessionalContextTraceEnabled:()=>false,buildLinkedInProfessionalContextTrace:()=>undefined};
  }
  deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};

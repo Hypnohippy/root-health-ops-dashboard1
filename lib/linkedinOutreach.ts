@@ -8,6 +8,10 @@ import { objectiveFor, linkedInConnectionMode, FRESH_CONNECTION_MS, type Respons
 
 export { FRESH_CONNECTION_MS };
 export type OutreachView = "all" | "fresh" | "catchup" | "followups";
+export type ProfessionalContextStatus = {
+  state: "available" | "unavailable" | "withheld";
+  discrepancy?: boolean;
+};
 const text = (v: unknown): string | null => typeof v === "string" && v.trim() ? v.trim() : null;
 const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
 const date = (v: unknown) => text(v) && Number.isFinite(Date.parse(String(v))) ? new Date(String(v)).toISOString() : null;
@@ -129,9 +133,12 @@ export function linkedInOutreachQueue(organisationId: string, input: LifecycleIn
       context.role = recipient.role;
       context.company = recipient.company;
     }
+    const professionalContextStatus: ProfessionalContextStatus | null = first && fresh
+      ? { state: context.role || context.company || context.recipientCategory ? "available" : "unavailable" }
+      : null;
     return [{ contactId: contact.contactId, table, id: row.id, name: contact.name || "Unnamed contact", company: contact.company, role, connectedAt,
       lifecycle: contact.currentStage, stage, mode, dueAt: contact.nextDueDate, lastAction: contact.lastAction, reason,
-      destination: truth.destination, destinationKind: /\/messaging\//.test(truth.destination) ? "messaging" : "profile", previousOutbound: first ? null : previousOutbound, context,
+      destination: truth.destination, destinationKind: /\/messaging\//.test(truth.destination) ? "messaging" : "profile", previousOutbound: first ? null : previousOutbound, context, professionalContextStatus,
       // Drafts are generated against this exact stage; old saved drafts may belong to another stage.
       priority: first ? highFit ? 1 : 2 : 0 }];
   });

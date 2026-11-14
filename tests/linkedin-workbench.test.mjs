@@ -31,6 +31,16 @@ test("selected identity and action toolbar remain above the independently scroll
  const f=componentFixture(),tree=f.ContactCard(props(f)),html=renderToStaticMarkup(tree);
  assert.match(html,/Outreach actions for Person 1/);assert.match(html,/sticky top-0/);assert.match(html,/overflow-y-auto/);assert.ok(html.indexOf("Sent now")<html.indexOf("textarea"));assert.match(html,/Message for Person 1/);assert.match(html,/Company 1/);
 });
+test("fresh contacts display safe professional-context status without ledger details",()=>{
+ const f=componentFixture(),p=props(f);p.item={...p.item,stage:"connection",mode:"fresh",context:{name:"Person 1",role:"HR Consultant",company:null,recipientCategory:null},professionalContextStatus:{state:"available"}};
+ let html=renderToStaticMarkup(f.ContactCard(p));assert.match(html,/Context available/);assert.doesNotMatch(html,/relationship_identity_decisions|source identifier|canonical identity/);
+ p.item={...p.item,role:null,context:{...p.item.context,role:null},professionalContextStatus:{state:"unavailable"}};
+ html=renderToStaticMarkup(f.ContactCard(p));assert.match(html,/Context unavailable/);assert.match(html,/No verified professional details are recorded/);
+ p.item={...p.item,professionalContextStatus:{state:"withheld"}};
+ html=renderToStaticMarkup(f.ContactCard(p));assert.match(html,/Context withheld/);assert.match(html,/current identity or source checks do not allow it/);
+ p.item={...p.item,professionalContextStatus:{state:"withheld",discrepancy:true}};
+ html=renderToStaticMarkup(f.ContactCard(p));assert.match(html,/Context review needed/);assert.match(html,/Review the contact before relying on a general message/);
+});
 test("skip stays in console and moves selection without any completion request",async()=>{
  const f=componentFixture(),tree=f.ContactCard(props(f));const skip=nodes(tree).find(n=>n.type==="button"&&text(n)==="Skip");await skip.props.onClick();assert.deepEqual(f.next,[["contact-1",false]]);assert.equal(f.calls.length,0);
 });

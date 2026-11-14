@@ -17,22 +17,24 @@ function fixture(disputed=true,role=prose,company='work and fulfill their potent
  const context={input:{lifecycle:input,founder:[],workspaces:[],links:[],founderActivities:[],emailMessages:[],linkedinMessages:[],activities:[],tasks:[],acquisitionEvents:[],responseEvents:[]},policy:{organisationId:org,founderAllowed:false,asOf:new Date(now).toISOString()},ledger:[]};
  return {input,context,now};
 }
-test('observed dual-acceptance shape is fresh/eligible but withheld professional fields use minimal Day 0',()=>{
- const f=fixture(),before=JSON.stringify(f.input),raw=queue(org,f.input,f.now).items[0];
- assert.equal(raw.context.role,prose);assert.equal(raw.context.company,'work and fulfill their potential.');
- assert.throws(()=>dayZero(raw.context),/Review the recorded professional context/);
+test('disputed names do not erase exact accepted records professional evidence',()=>{
+ const f=fixture(true,'Head of People','Synthetic Employer'),before=JSON.stringify(f.input),raw=queue(org,f.input,f.now).items[0];
+ assert.equal(raw.table,'inbox_items');assert.equal(raw.context.role,'Head of People');assert.equal(raw.context.company,'Synthetic Employer');
  const shown=enrich([raw],f.context)[0];
- assert.equal(shown.role,null);assert.equal(shown.company,null);
- assert.equal(shown.context.role,null);assert.equal(shown.context.company,null);assert.equal(shown.context.recipientCategory,null);
+ assert.equal(shown.role,'Head of People');assert.equal(shown.company,'Synthetic Employer');
+ assert.equal(shown.context.role,'Head of People');assert.equal(shown.context.company,'Synthetic Employer');
+ assert.equal(shown.professionalContextStatus.state,'available');
+ assert.equal(family(shown.context),'people_leader');
+ assert.match(dayZero(shown.context),/People teams/);
  assert.equal(shown.stage,'connection');assert.equal(shown.mode,'fresh');
- assert.match(dayZero(shown.context),/^Hi Zoë — thanks for connecting\. I’m looking at how organisations can understand workforce wellbeing more continuously/);
- assert.doesNotMatch(shown.reason,/recorded role matches/);
+ assert.match(shown.reason,/recorded role matches/);
  assert.equal(shown.priority,raw.priority);assert.equal(shown.table,raw.table);assert.equal(shown.id,raw.id);
- assert.equal(JSON.stringify(f.input),before);assert.notEqual(outreachDraftKey(raw),outreachDraftKey(shown));
+ assert.equal(JSON.stringify(f.input),before);assert.equal(outreachDraftKey(raw),outreachDraftKey(shown));
 });
 test('genuinely blank professional fields stay eligible and use the approved name-only wording',()=>{
  const f=fixture(false,null,null),shown=enrich(queue(org,f.input,f.now).items,f.context)[0];
  assert.equal(shown.role,null);assert.equal(shown.company,null);assert.equal(shown.context.role,null);assert.equal(shown.context.company,null);
+ assert.equal(shown.professionalContextStatus.state,'unavailable');
  assert.match(dayZero(shown.context),/^Hi Zoë — thanks for connecting\. I’m looking at how organisations can understand workforce wellbeing more continuously/);
 });
 test('strong agreed recorded HR context remains grounded and display/generation agree',()=>{
@@ -68,6 +70,7 @@ test('verified display contradiction with queue role remains fail-closed',()=>{
  const truth={...f.context,input:{...f.context.input,lifecycle:contradictory}};
  const shown=enrich([queued],truth)[0];
  assert.equal(shown.role,null);assert.equal(shown.context.role,null);
+ assert.equal(shown.professionalContextStatus.state,'available');
  assert.equal(family(shown.context),'general');
 });
 test('Console Truth projection keeps exact canonical-profile metadata attached to a fresh acceptance',()=>{
@@ -112,6 +115,53 @@ test('same exact identity with contradictory role fields on one record fails clo
  const shown=enrich([raw],f.context)[0];
  assert.equal(shown.context.role,null);assert.equal(family(shown.context),'general');
 });
+test('disputed-name path keeps accepted-row context while ignoring unrelated same-name identity',()=>{
+ const f=fixture(true,'People Director','Example Organisation');
+ f.input.acquisition_items.push({id:'99999999-9999-4999-8999-999999999999',organisation_id:org,person:'Zoë',source_url:'https://linkedin.com/in/different-person',metadata:{headline:'Chief Executive',company:'Unrelated Ltd'}});
+ const raw=queue(org,f.input,f.now).items.find(item=>item.table==='inbox_items');
+ assert.ok(raw,'accepted inbox row is the selected action record');
+ const shown=enrich([raw],f.context)[0];
+ assert.equal(shown.context.role,'People Director');
+ assert.equal(shown.context.company,'Example Organisation');
+ assert.doesNotMatch(JSON.stringify(shown.context),/Chief Executive|Unrelated Ltd/);
+ assert.equal(family(shown.context),'people_leader');
+ assert.equal(shown.professionalContextStatus.state,'available');
+});
+test('disputed name with conflicting exact-identity professional evidence remains withheld',()=>{
+ const f=fixture(true,'People Director','Example Organisation');
+ f.input.inbox_items[1].raw={headline:'Chief Executive',company:'Different Organisation',profile_url:`https://${profile}`};
+ const raw=queue(org,f.input,f.now).items[0];
+ const shown=enrich([raw],f.context)[0];
+ assert.equal(shown.context.role,null);
+ assert.equal(shown.context.company,null);
+ assert.equal(shown.professionalContextStatus.state,'withheld');
+ assert.equal(family(shown.context),'general');
+});
+test('disputed-name evidence can come from an exact accepted row separate from the action record',()=>{
+ const f=fixture(true,'HR Consultant','Consulting Practice');
+ f.input.growth_targets=[{id:'77777777-7777-4777-8777-777777777777',organisation_id:org,target_name:'Zoë',linkedin_identity:profile,status:'active',stage:'connection',record_type:'b2b_lead',updated_at:new Date().toISOString(),raw:{}}];
+ const raw=queue(org,f.input,f.now).items[0];
+ assert.equal(raw.table,'growth_targets');
+ assert.equal(raw.context.role,'HR Consultant');
+ const shown=enrich([raw],f.context)[0];
+ assert.equal(shown.context.role,'HR Consultant');
+ assert.equal(shown.context.company,'Consulting Practice');
+ assert.equal(family(shown.context),'hr_consultant');
+});
+test('an explicitly kept-separate identity cannot lend context to an ambiguous action record',()=>{
+ const f=fixture(false,'Head of People','Synthetic Employer'),accepted=f.input.inbox_items[0];
+ f.input.inbox_items=[accepted];
+ const target={id:'77777777-7777-4777-8777-777777777777',organisation_id:org,target_name:'Zoë',linkedin_identity:profile,status:'active',stage:'connection',record_type:'b2b_lead',updated_at:new Date().toISOString(),raw:{}};
+ f.input.growth_targets=[target];
+ const raw=queue(org,f.input,f.now).items[0];
+ assert.equal(raw.table,'growth_targets');
+ const decision={id:'keep-separate',organisation_id:org,source_ref_a:{table:'inbox_items',id:accepted.id},source_ref_b:{table:'growth_targets',id:target.id},decision:'keep_separate',reviewed_evidence_ids:[`inbox_items:${accepted.id}`,`growth_targets:${target.id}`],evidence_summary:'Intentionally separate identity records',actor_user_id:'reviewer',created_at:new Date().toISOString(),decided_at:new Date().toISOString(),revision:1,note:null,supersedes_decision_id:null,candidate_revision:'fixture',alias_bindings:{a:[{type:'linkedin',value:profile}],b:[{type:'linkedin',value:profile}]},founder_only:false,idempotency_key:'keep-separate-identity-fixture'};
+ const shown=enrich([raw],{...f.context,ledger:[decision]})[0];
+ assert.equal(shown.context.role,null);
+ assert.equal(shown.context.company,null);
+ assert.equal(shown.professionalContextStatus.state,'withheld');
+ assert.equal(family(shown.context),'general');
+});
 test('a truncated but genuinely different role claim still fails closed',()=>{
  const f=fixture(false,null,null),acceptance=f.input.inbox_items[0];
  acceptance.raw={profile_url:`https://${profile}`,headline:'Chartered HR Consultant…'};
@@ -152,7 +202,7 @@ test('an unsafe contact does not prevent explicit batch Skip or working another 
  assert.equal(queue(org,f.input,f.now).total,2);assert.equal(JSON.stringify(f.input),before);
 });
 test('GET and actual fresh POST share canonical facts with no provider, send or lifecycle mutation',async()=>{
- const f=fixture(),before=JSON.stringify(f.input),json=(body,opt={})=>({body,status:opt.status||200});
+ const f=fixture(false,'Head of People','Synthetic Employer'),before=JSON.stringify(f.input),json=(body,opt={})=>({body,status:opt.status||200});
  const tenant={organisationId:org,userId:'actor'};let enrichCalls=0;
  const api=loadTruthModule('app/api/growth/linkedin-console/route.ts',{
   'next/server':{NextResponse:{json}},'@/lib/tenantRoute.server':{withTenantRoute:handler=>request=>handler(request,tenant)},
@@ -172,7 +222,7 @@ test('GET and actual fresh POST share canonical facts with no provider, send or 
  assert.equal((await api.GET({url:'https://fixture.invalid/api/growth/linkedin-console?view=all'})).body.total,1);
  const skipped=queue(org,f.input,f.now,'all',[item.contactId]);assert.equal(skipped.items.length,0);
 });
-test('Production GET route and server display retain accepted-row and exact acquisition roles',async()=>{
+test('authenticated GET projection and independent draft POST preserve disputed-name accepted evidence',async()=>{
  const json=(body,opt={})=>({body,status:opt.status||200}),tenant={organisationId:org,userId:'actor'};
  const makeAccepted=(id,name,identity,raw={})=>({id,organisation_id:org,platform:'linkedin',kind:'connection_accepted',author_name:name,linkedin_identity:identity,permalink:`https://www.${identity}`,status:'needs_reply',response_state:'needs_reply',created_at_platform:new Date(Date.now()-3600000).toISOString(),raw});
  const input={
@@ -185,19 +235,16 @@ test('Production GET route and server display retain accepted-row and exact acqu
    {id:'e5555555-5555-4555-8555-555555555555',organisation_id:org,person:'Gabriela',source_url:'https://www.linkedin.com/in/gabriela-hr',metadata:{headline:'HR Generalist'}},
   ]
  };
- const separated=[];
- for(const accepted of input.inbox_items){
-  let acquisition=input.acquisition_items.find(row=>row.source_url?.includes(accepted.linkedin_identity));
-  if(!acquisition){
-   acquisition={id:`f5555555-5555-4555-8555-${accepted.id.split('-').at(-1)}`,organisation_id:org,person:accepted.author_name,source_url:`https://www.${accepted.linkedin_identity}`,metadata:{}};
-   input.acquisition_items.push(acquisition);
-  }
-  const alias=accepted.linkedin_identity;
-  separated.push({id:`decision-${accepted.id}`,organisation_id:org,source_ref_a:{table:'inbox_items',id:accepted.id},source_ref_b:{table:'acquisition_items',id:acquisition.id},decision:'keep_separate',reviewed_evidence_ids:[`inbox_items:${accepted.id}`,`acquisition_items:${acquisition.id}`],evidence_summary:'Synthetic exact-profile separation fixture',actor_user_id:'reviewer',created_at:'2026-11-12T12:00:00.000Z',decided_at:'2026-11-12T12:00:00.000Z',revision:1,note:null,supersedes_decision_id:null,candidate_revision:'fixture',alias_bindings:{a:[{type:'linkedin',value:alias}],b:[{type:'linkedin',value:alias}]},founder_only:false,idempotency_key:`separation-${accepted.id}`});
- }
+ const originals=[...input.inbox_items];
+ originals.forEach((accepted,index)=>input.inbox_items.push({...accepted,id:`z5555555-5555-4555-8555-${String(index+1).padStart(12,'0')}`,author_name:`${accepted.author_name} profile`,raw:{canonical_profile_url:accepted.linkedin_identity}}));
+ input.acquisition_items.push(
+  {id:'f5555555-5555-4555-8555-111111111111',organisation_id:org,person:'Paul M.',source_url:'https://www.linkedin.com/in/paulmcgrathuk',metadata:{}},
+  {id:'f5555555-5555-4555-8555-333333333333',organisation_id:org,person:'Louise HR',source_url:'https://www.linkedin.com/in/louise-hr',metadata:{}},
+  {id:'f5555555-5555-4555-8555-444444444444',organisation_id:org,person:'Vicky Smith',source_url:'https://www.linkedin.com/in/vicky-no-role',metadata:{}},
+ );
  const displayServer=loadTruthModule('lib/linkedinOutreachDisplay.server.ts',{
   '@/lib/relationshipWorkspace.server':{relationshipContext:async()=>({input,founder:[],workspaces:[],links:[],canFounder:false})},
-  '@/lib/opsSearch.server':{readTenantHistory:async()=>separated},
+  '@/lib/opsSearch.server':{readTenantHistory:async()=>[]},
  });
  const api=loadTruthModule('app/api/growth/linkedin-console/route.ts',{
   'next/server':{NextResponse:{json}},
@@ -213,12 +260,25 @@ test('Production GET route and server display retain accepted-row and exact acqu
  const response=await api.GET({url:'https://fixture.invalid/api/growth/linkedin-console?view=fresh'});
  assert.equal(response.status,200);
  const items=new Map(response.body.items.map(item=>[item.name,item]));
+ assert.ok([...items.values()].every(item=>item.table==='inbox_items'), 'accepted inbox rows remain the selected action records');
  assert.equal(items.get('Paul').role,'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR');
  assert.equal(family(items.get('Paul').context),'hr_consultant');
+ assert.equal(items.get('Paul').professionalContextStatus.state,'available');
  assert.equal(items.get('Gabriela').role,'HR Generalist');
  assert.equal(family(items.get('Gabriela').context),'people_leader');
  assert.equal(items.get('Louise').role,'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...');
  assert.equal(family(items.get('Louise').context),'hr_consultant');
  assert.equal(items.get('Vicky Smith').role,null);
  assert.equal(family(items.get('Vicky Smith').context),'general');
+ assert.equal(items.get('Vicky Smith').professionalContextStatus.state,'unavailable');
+ const generated=new Map();
+ for(const [name,item] of items){
+  const draft=await api.POST({json:async()=>({action:'generate',table:item.table,id:item.id,revision:'1',variant:0})});
+  assert.equal(draft.status,200,`${name} draft generation should succeed independently`);
+  generated.set(name,draft.body.message);
+ }
+ assert.match(generated.get('Paul'),/independent HR consultants/i);
+ assert.match(generated.get('Gabriela'),/People teams/i);
+ assert.match(generated.get('Louise'),/independent HR consultants/i);
+ assert.match(generated.get('Vicky Smith'),/I’m looking at how organisations can understand workforce wellbeing more continuously/);
 });
