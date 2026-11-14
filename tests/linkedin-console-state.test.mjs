@@ -13,21 +13,22 @@ const helpers=load('lib/linkedinWorkbench.ts');
 const dayZero=load('lib/linkedinDayZero.ts');
 const item=(id,mode='fresh',stage='connection')=>({contactId:id,id,table:'growth_targets',name:id,stage,mode,connectedAt:'2026-10-14T09:00:00Z',lifecycle:'outreach_ready',reason:'Recorded connection',context:{role:'HR Director',company:'Employer',connectionMode:mode},previousOutbound:null,destination:'https://www.linkedin.com/in/recorded',destinationKind:'profile'});
 async function mount(){
- let items=[item('First'),item('Next')],revision=1,loadGate=null,generationFailure=null,staleCount=0;const calls=[];
+ let items=[item('First'),item('Next')],revision=1,loadGate=null,generationFailure=null,staleCount=0;const calls=[],copiedReports=[];
  const api=async(url,init)=>{
-  if(!init?.method){calls.push({action:'load',url});if(loadGate)await loadGate;const skipped=new URL(url,'https://ops.test').searchParams.getAll('skip');const visible=items.filter(i=>!skipped.includes(i.contactId));return {ok:true,json:async()=>({items:visible,total:visible.length,revision:String(revision),organisationId:'tenant',repliesNeedingAttention:0,identityReviewNeeded:0})};}
+  if(!init?.method){calls.push({action:'load',url});if(loadGate)await loadGate;const skipped=new URL(url,'https://ops.test').searchParams.getAll('skip');const visible=items.filter(i=>!skipped.includes(i.contactId));return {ok:true,json:async()=>({items:visible,total:visible.length,revision:String(revision),organisationId:'tenant',repliesNeedingAttention:0,identityReviewNeeded:0,freshAuditAvailable:true})};}
   const body=JSON.parse(init.body);calls.push(body);
+  if(body.action==='audit_fresh')return {ok:true,json:async()=>({report:{eligibleFreshContacts:2,successfulDraftGenerations:2,contacts:[{name:'Person 1'}],traversalComplete:true,queueRevisionStable:true,externalModelCalls:0,sends:0,lifecycleWrites:0}})};
   if(body.action==='record_send'){items=items.filter(i=>i.id!==body.id);revision++;return {ok:true,json:async()=>({success:true})};}
   if(staleCount>0){staleCount--;revision++;return {ok:false,status:409,json:async()=>({code:'STALE_QUEUE_REVISION',error:'Queue state changed. Reload before taking action.'})};}
   if(generationFailure)return {ok:false,status:409,json:async()=>({error:generationFailure})};
   return {ok:true,json:async()=>({message:`${items.find(i=>i.id===body.id).mode} ${items.find(i=>i.id===body.id).stage} draft`})};
  };
  const listeners=new Map();
- const environment={window:{addEventListener:(event,fn)=>listeners.set(event,fn),removeEventListener:(event)=>listeners.delete(event),open:()=>({opener:null,location:{replace:()=>{}}})},document:{visibilityState:'visible',addEventListener:(event,fn)=>listeners.set(event,fn),removeEventListener:(event)=>listeners.delete(event)},navigator:{clipboard:{writeText:async()=>{}}}};
+ const environment={window:{addEventListener:(event,fn)=>listeners.set(event,fn),removeEventListener:(event)=>listeners.delete(event),open:()=>({opener:null,location:{replace:()=>{}}})},document:{visibilityState:'visible',addEventListener:(event,fn)=>listeners.set(event,fn),removeEventListener:(event)=>listeners.delete(event)},navigator:{clipboard:{writeText:async value=>copiedReports.push(value)}}};
  const components=load('app/dashboard/responses/linkedin/LinkedInWorkbench.tsx',{'react':React,'react/jsx-runtime':jsx,'./KnownRelationshipSearch':{default:()=>null},'./LinkedInToConnect':{default:()=>null},'./LinkedInHistoricalSend':{default:()=>null},'@/lib/tenantFetch':{tenantFetch:api},'@/lib/linkedinWorkbench':helpers,'@/lib/linkedinDayZero':dayZero,'@/lib/linkedinClipboard':{openAndCopyLinkedIn:async(message,url,browser)=>{browser.open(url);await browser.copy(message);return 'Copied';}}},environment),C=components.default;
  let tree;await act(async()=>{tree=create(React.createElement(C));});
  const button=name=>tree.root.findAllByType('button').find(b=>b.children.join('')===name);
- return {recordElsewhere:()=>{items=items.slice(1);revision++;},returned:async()=>act(async()=>{listeners.get('focus')?.();listeners.get('visibilitychange')?.();}),setNext:patch=>{items=[items[0],{...items[1],...patch}];revision++;},staleGenerations:count=>{staleCount=count;},failGeneration:message=>{generationFailure=message;},tree,C,BatchList:components.BatchList,calls,button,holdReload:()=>{let release;loadGate=new Promise(resolve=>{release=()=>{loadGate=null;resolve();};});return release;},setFirst:patch=>{items=[{...items[0],...patch},...items.slice(1)];revision++;},reload:async()=>act(async()=>button('Work next 10').props.onClick()),unmount:async()=>act(async()=>tree.unmount())};
+ return {recordElsewhere:()=>{items=items.slice(1);revision++;},returned:async()=>act(async()=>{listeners.get('focus')?.();listeners.get('visibilitychange')?.();}),setNext:patch=>{items=[items[0],{...items[1],...patch}];revision++;},staleGenerations:count=>{staleCount=count;},failGeneration:message=>{generationFailure=message;},tree,C,BatchList:components.BatchList,calls,copiedReports,button,holdReload:()=>{let release;loadGate=new Promise(resolve=>{release=()=>{loadGate=null;resolve();};});return release;},setFirst:patch=>{items=[{...items[0],...patch},...items.slice(1)];revision++;},reload:async()=>act(async()=>button('Work next 10').props.onClick()),unmount:async()=>act(async()=>tree.unmount())};
 }
 test('same contact/stage cannot retain a fresh draft after mode or recipient context changes',async()=>{
  const f=await mount();try{
@@ -67,6 +68,19 @@ test('Outreach timestamps always display UK local time, including BST/GMT bounda
  assert.equal(helpers.outreachDateTime('2026-12-18T23:25:08Z'),'18/12/2026, 23:25:08');
  assert.equal(helpers.outreachDateTime(null),'Not recorded');
  }finally{if(oldTimezone===undefined)delete process.env.TZ;else process.env.TZ=oldTimezone;await f.unmount();}
+});
+
+test('Preview Fresh queue audit runs once and copies the consolidated report without send actions',async()=>{
+ const f=await mount();try{
+  await act(async()=>f.button('Fresh').props.onClick());
+  assert.ok(f.button('Run Fresh Queue Audit'));
+  await act(async()=>f.button('Run Fresh Queue Audit').props.onClick());
+  assert.equal(f.calls.filter(call=>call.action==='audit_fresh').length,1);
+  assert.ok(f.tree.root.findAllByType('h2').some(node=>node.children.join('').includes('Fresh queue audit · 2')));
+  await act(async()=>f.button('Copy Audit Report').props.onClick());
+  assert.equal(JSON.parse(f.copiedReports[0]).eligibleFreshContacts,2);
+  assert.equal(f.calls.filter(call=>call.action==='record_send').length,0);
+ }finally{await f.unmount();}
 });
 
 test('empty-cache initial selection, uncached selection and skip automatically generate drafts',async()=>{

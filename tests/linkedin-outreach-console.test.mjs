@@ -8,12 +8,13 @@ function load(file, deps = {}, globals = {}) {
  if (file === "app/api/growth/linkedin-console/route.ts") {
   deps["@/lib/linkedinCadenceDraft"] ||= load("lib/linkedinCadenceDraft.ts", {"@/lib/linkedinDayZero":{}});
   deps["@/lib/linkedinRecipientContext"] ||= load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});
+  deps["@/lib/linkedinFreshAudit"] ||= load("lib/linkedinFreshAudit.ts", {"@/lib/linkedinDayZero": load("lib/linkedinDayZero.ts")});
  }
  deps["@/lib/linkedinOutreachDisplay.server"] ||= {linkedInOutreachDisplay:async(_tenant,items)=>items};
  const mod={exports:{}};
  if (!deps["@/lib/linkedinDayZero"]) deps["@/lib/linkedinDayZero"] = file === "lib/linkedinDayZero.ts" ? {} : load("lib/linkedinDayZero.ts", {"@/lib/linkedinDayZero": {}});
  if (file === "lib/linkedinOutreach.ts") deps["@/lib/linkedinRecipientContext"] = load("lib/linkedinRecipientContext.ts", {"@/lib/contactLifecycle": lifecycle});
- vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{...globals,module:mod,exports:mod.exports,URL,URLSearchParams,AbortSignal,require:n=>{assert.ok(n in deps,n);return deps[n];}});
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{process:{env:{}},...globals,module:mod,exports:mod.exports,URL,URLSearchParams,AbortSignal,require:n=>{assert.ok(n in deps,n);return deps[n];}});
  return mod.exports;
 }
 const sendEvidence=load("lib/linkedinSendEvidence.ts");

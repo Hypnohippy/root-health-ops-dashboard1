@@ -8,8 +8,9 @@ import { tenantFetch } from "@/lib/tenantFetch";
 import { selectedBatchId, removeBatchContact, outreachDraftKey, outreachDateTime, generateOutreachDraft, DraftStateChangedError } from "@/lib/linkedinWorkbench";
 import { linkedInFirstMessageAngle, linkedInFirstMessageFamily } from "@/lib/linkedinDayZero";
 import type { LinkedInOutreachItem, OutreachView } from "@/lib/linkedinOutreach";
+import type { LinkedInFreshAuditReport } from "@/lib/linkedinFreshAudit";
 
-type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; recoveryItem?: LinkedInOutreachItem | null; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
+type Queue = { view?: OutreachView; audit?: Record<string, unknown>[]; freshAuditAvailable?: boolean; reconciliationReasons?: Record<string, number>; identityReviewNeeded: number; unreconciledFollowups: number; recoveryItem?: LinkedInOutreachItem | null; items: LinkedInOutreachItem[]; revision: string; total: number; repliesNeedingAttention: number; organisationId: string };
 const button = "rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10 disabled:opacity-40";
 const when = outreachDateTime;
 
@@ -161,6 +162,9 @@ export default function LinkedInConsole() {
   const [loading, setLoading] = useState(false);
   const [connectionView, setConnectionView] = useState<"to_connect" | "pending" | null>(null);
   const [pending, setPending] = useState<Record<string, { message: string; draftKey: string }>>({});
+  const [freshAudit, setFreshAudit] = useState<LinkedInFreshAuditReport | null>(null);
+  const [freshAuditError, setFreshAuditError] = useState("");
+  const [freshAuditBusy, setFreshAuditBusy] = useState(false);
   const returnRefresh = useRef(false);
   const openedContact = useRef<string | null>(null);
   const skipped = useRef<string[]>([]);
@@ -185,7 +189,7 @@ export default function LinkedInConsole() {
     } catch (e) { if (token === sequence.current) setError(e instanceof Error ? e.message : "Queue unavailable."); }
     finally { if (token === sequence.current) setLoading(false); }
   }, [view]);
-  useEffect(() => { batchIds.current = null; void load(); const counter = sequence; return () => { counter.current++; }; }, [load]);
+  useEffect(() => { batchIds.current = null; setFreshAudit(null); setFreshAuditError(""); void load(); const counter = sequence; return () => { counter.current++; }; }, [load]);
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     const returned = () => {
@@ -218,9 +222,31 @@ export default function LinkedInConsole() {
   const org = queue?.organisationId || "";
   const inbox = `/dashboard/responses${org ? `?organisationId=${encodeURIComponent(org)}` : ""}`;
   function newBatch(includeSkipped = false) { if (includeSkipped) skipped.current = []; batchIds.current = null; void load(); }
+  async function runFreshAudit() {
+    setFreshAuditBusy(true); setFreshAuditError(""); setFreshAudit(null);
+    try {
+      const response = await tenantFetch("/api/growth/linkedin-console", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "audit_fresh", organisationId: org }) });
+      const data = await response.json();
+      if (!response.ok || !data.report) throw Error(data.error || "Fresh queue audit could not be completed.");
+      setFreshAudit(data.report as LinkedInFreshAuditReport);
+    } catch (cause) { setFreshAuditError(cause instanceof Error ? cause.message : "Fresh queue audit could not be completed."); }
+    finally { setFreshAuditBusy(false); }
+  }
+  async function copyFreshAudit() {
+    if (!freshAudit) return;
+    try { await navigator.clipboard.writeText(JSON.stringify(freshAudit, null, 2)); setFreshAuditError("Audit report copied."); }
+    catch { setFreshAuditError("Clipboard unavailable. Select and copy the report below."); }
+  }
   return <main className="mx-auto max-w-7xl space-y-4 p-4 py-5 text-slate-100"><KnownRelationshipSearch/>
     <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-2xl font-semibold">LinkedIn Outreach Console</h1><a href={inbox} className="text-sm underline text-sky-300">Back to Responses inbox</a><a className="ml-4 text-sm underline" href={`/dashboard/responses/linkedin/conversations?organisationId=${encodeURIComponent(org)}`}>Log a LinkedIn conversation</a></div>
     <nav aria-label="Queue views" className="flex flex-wrap gap-2">{([ ["all","Work next 10"], ["fresh","Fresh"], ["catchup","Catch-up"], ["followups","Follow-ups due"] ] as const).map(([value,label]) => <button key={value} aria-pressed={!connectionView && view === value} disabled={loading || working} className={`${button} ${view === value ? "bg-emerald-900" : ""}`} onClick={() => { setConnectionView(null); if (view === value) newBatch(); else setView(value); }}>{label}</button>)}{([["to_connect", "To connect"], ["pending", "Invitation pending"]] as const).map(([value, label]) => <button key={value} className={`${button} ${connectionView === value ? "bg-emerald-900" : ""}`} aria-pressed={connectionView === value} disabled={working} onClick={() => setConnectionView(value)}>{label}</button>)}</nav>
+    {!connectionView && view === "fresh" && queue?.freshAuditAvailable && <section aria-label="Fresh queue audit" className="space-y-3 rounded-xl border border-amber-300/30 bg-amber-950/20 p-4">
+      <div className="flex flex-wrap items-center gap-3"><button className={`${button} bg-amber-900`} disabled={loading || working || freshAuditBusy} onClick={() => void runFreshAudit()}>{freshAuditBusy ? "Auditing Fresh queue…" : "Run Fresh Queue Audit"}</button>{freshAudit && <button className={button} onClick={() => void copyFreshAudit()}>Copy Audit Report</button>}<p className="text-xs text-slate-300">Read-only Preview check. Draft checks use deterministic Fresh message rules; no model calls or sends.</p></div>
+      {freshAuditError && <p role="status" className="text-sm">{freshAuditError}</p>}
+      {freshAudit && <div aria-live="polite" className="space-y-3"><h2 className="font-semibold">Fresh queue audit · {freshAudit.eligibleFreshContacts} eligible</h2><dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:grid-cols-4">{[
+        ["Professional evidence", freshAudit.contactsWithProfessionalEvidence], ["Context preserved", freshAudit.contextSuccessfullyPreserved], ["Genuinely unavailable", freshAudit.contextGenuinelyUnavailable], ["Withheld", freshAudit.contextWithheld], ["Unexpected context loss", freshAudit.unexpectedContextLoss], ["General classification", freshAudit.correctGeneralClassifications], ["Specialised classification", freshAudit.correctSpecialisedClassifications], ["Draft checks passed", freshAudit.successfulDraftGenerations], ["Draft checks failed", freshAudit.failedDraftGenerations], ["Needs investigation", freshAudit.contactsRequiringInvestigation],
+      ].map(([label, value]) => <div key={label} className="rounded border border-white/10 p-2"><dt className="text-xs text-slate-400">{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl><p className="text-xs text-slate-300">{freshAudit.traversalComplete ? "All eligible Fresh contacts traversed." : "Incomplete or changed snapshot: affected checks are not fully verified."} Snapshot stable: {freshAudit.queueRevisionStable ? "yes" : "no"}. External model calls: 0 · Sends: 0 · lifecycle writes: 0.</p><details><summary className="cursor-pointer text-sm">Per-contact checks and exceptions</summary><pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-white/10 p-3 text-xs">{JSON.stringify(freshAudit, null, 2)}</pre></details></div>}
+    </section>}
     {connectionView ? <LinkedInToConnect key={connectionView} view={connectionView}/> : <>
     <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
       <span>{queue?.items.length || 0} in this batch · {queue?.total || 0} eligible</span>

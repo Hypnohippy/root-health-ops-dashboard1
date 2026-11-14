@@ -9,9 +9,10 @@ import { withTenantRoute } from "@/lib/tenantRoute.server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readLifecycleInput } from "@/lib/lifecycleSnapshot.server";
 import { linkedInOutreachQueue, type OutreachView } from "@/lib/linkedinOutreach";
-import { responseDraftRules, safeLinkedInCatchupDraft, linkedInDayZeroMessage } from "@/lib/responseContactContext";
+import { responseDraftRules, safeLinkedInCatchupDraft } from "@/lib/responseContactContext";
 import { getOrganisationGenerationProfile } from "@/lib/organisationProfile.server";
 import { generationMessages } from "@/lib/tenantGeneration";
+import { buildLinkedInFreshAuditReport, freshDraftFailureReason, generateFreshLinkedInFirstMessage, isLinkedInFreshAuditAvailable } from "@/lib/linkedinFreshAudit";
 
 export const runtime = "nodejs";
 async function revision(org: string) {
@@ -39,10 +40,44 @@ export const GET = withTenantRoute(async (req, tenant) => {
   if (state.revision !== await revision(tenant.organisationId)) throw Error("State changed; reload the queue.");
   queue.items = queue.items.map(item => enrichedById.get(item.contactId) || item);
   const displayRecovery = recoveryItem ? enrichedById.get(recoveryItem.contactId) || recoveryItem : recoveryItem;
-  return NextResponse.json({ ...queue, view, ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ ...queue, view, freshAuditAvailable: isLinkedInFreshAuditAvailable(), ...(recoveryContactId ? { recoveryItem: displayRecovery } : {}), revision: state.revision, organisationId: tenant.organisationId }, { headers: { "Cache-Control": "private, no-store" } });
 }, { write: true });
 export const POST = withTenantRoute(async (req, tenant) => {
   const body = await req.json();
+  if (body.action === "audit_fresh") {
+    if (!isLinkedInFreshAuditAvailable()) return NextResponse.json({ error: "Fresh queue audit is unavailable." }, { status: 404 });
+    const [state, self] = await Promise.all([snapshot(tenant.organisationId), readOutreachSelfIdentity(tenant.organisationId, tenant.userId)]);
+    const queue = linkedInOutreachQueue(tenant.organisationId, state.input, Date.now(), "fresh", [], Infinity, self, state.stale);
+    const displayed = await linkedInOutreachDisplay(tenant, queue.items);
+    const displayedById = new Map(displayed.map(item => [item.contactId, item]));
+    const generations = new Map<string, { status: "passed" | "failed" | "not_run"; reasonCode?: string }>();
+    let queueRevisionStable = false;
+    try { queueRevisionStable = state.revision === await revision(tenant.organisationId); }
+    catch { queueRevisionStable = false; }
+    for (const queued of queue.items) {
+      const presented = displayedById.get(queued.contactId);
+      if (!queueRevisionStable) {
+        generations.set(queued.contactId, { status: "not_run", reasonCode: "QUEUE_CHANGED_DURING_AUDIT" });
+        continue;
+      }
+      if (!presented) {
+        generations.set(queued.contactId, { status: "failed", reasonCode: "DISPLAY_PROJECTION_MISSING" });
+        continue;
+      }
+      try {
+        // This is the same deterministic first-message path used by the normal Fresh draft POST.
+        // The generated copy is deliberately discarded; no provider/model or send is invoked.
+        generateFreshLinkedInFirstMessage(queued, presented, 0);
+        generations.set(queued.contactId, { status: "passed" });
+      } catch (error) {
+        generations.set(queued.contactId, { status: "failed", reasonCode: freshDraftFailureReason(error) });
+      }
+    }
+    try { queueRevisionStable = queueRevisionStable && state.revision === await revision(tenant.organisationId); }
+    catch { queueRevisionStable = false; }
+    const report = buildLinkedInFreshAuditReport({ queued: queue.items, displayed, generations, queueTotal: queue.total, queueRevisionStable, traversalComplete: queue.items.length === queue.total });
+    return NextResponse.json({ report }, { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+  }
   if (["record_send", "classify_send"].includes(body.action)) {
     try { return NextResponse.json({ success: true, ...await reconcileLinkedInSend(tenant.organisationId, tenant.userId, body) }); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Confirmation failed." }, { status: 409 }); }
@@ -61,7 +96,7 @@ export const POST = withTenantRoute(async (req, tenant) => {
     const displayed = await linkedInOutreachDisplay(tenant, [current]);
     const presented = displayed.find(item => item.contactId === current.contactId) || current;
     let message: string;
-    try { message = linkedInDayZeroMessage(presented.context, firstMessageVariant); }
+    try { message = generateFreshLinkedInFirstMessage(current, presented, firstMessageVariant); }
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Review the contact context." }, { status: 409 }); }
     if (state.revision !== await revision(tenant.organisationId)) return NextResponse.json({ error: "Lifecycle changed while generating. Reload the queue.", code: "STALE_QUEUE_REVISION" }, { status: 409 });
     return NextResponse.json({ message });

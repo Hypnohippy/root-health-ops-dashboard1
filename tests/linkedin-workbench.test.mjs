@@ -57,6 +57,18 @@ test("warnings are compact diagnostics; Responses is an explicit back link, neve
  const f=componentFixture(),html=renderToStaticMarkup(f.default());assert.match(html,/Back to Responses inbox/);assert.match(html,/Queue diagnostics/);
 });
 
+test("Fresh queue audit control is Preview-gated, reports scope and offers structured copy",()=>{
+ assert.match(source,/!connectionView && view === "fresh" && queue\?\.freshAuditAvailable/);
+ assert.match(source,/action: "audit_fresh"/);
+ assert.match(source,/Run Fresh Queue Audit/);assert.match(source,/Copy Audit Report/);
+ assert.match(source,/JSON\.stringify\(freshAudit, null, 2\)/);
+ const queue={items:[],organisationId:"tenant",revision:"3",total:0,identityReviewNeeded:0,unreconciledFollowups:0,repliesNeedingAttention:0,freshAuditAvailable:true};
+ const f=componentFixture([false,"fresh",queue,null,"",false]),html=renderToStaticMarkup(f.default());
+ assert.match(html,/Run Fresh Queue Audit/);
+ const hidden=componentFixture([false,"fresh",{...queue,freshAuditAvailable:false},null,"",false]);
+ assert.doesNotMatch(renderToStaticMarkup(hidden.default()),/Run Fresh Queue Audit/);
+});
+
 test("large legacy and inbound counts leave the valid batch selectable",()=>{
  const items=Array.from({length:10},(_,i)=>item(i)),queue={items,organisationId:"tenant",revision:"3",total:10,identityReviewNeeded:80,unreconciledFollowups:0,repliesNeedingAttention:23};
  const f=componentFixture([false,"all",queue,"contact-3","",false]),tree=f.default(),html=renderToStaticMarkup(tree);
