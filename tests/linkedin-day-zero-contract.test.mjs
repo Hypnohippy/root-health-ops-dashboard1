@@ -102,6 +102,19 @@ test("approved People Leader and Partner defaults match the reviewed wording", (
   assert.equal(people, "Hi Jordan — thanks for connecting. I’m working on a preventative wellbeing platform designed to give People teams a clearer view of workforce pressure, recovery and emerging risk before it turns into absence, burnout or disengagement. The aim is to give HR something more useful than another wellbeing benefit — ongoing visibility into how the workforce is actually doing and where support may be needed. I’d really value your perspective. Would you be open to a short 20-minute call next week?");
   assert.equal(partner, "Hi Casey — thanks for connecting. I’m working on something that may sit quite naturally alongside the work consultants and wellbeing professionals already do with organisations. The idea is to give employers a more continuous view of workforce wellbeing between interventions, without replacing the existing service or client relationship. There may be an interesting partnership or referral angle in that. Would you be open to a short 20-minute conversation next week?");
 });
+test("Louise's verified 220-character HR headline generates with no company field", () => {
+  const role = "Multi Award Winning HR | Outsourced HR for UK SMEs | TUPE Expert | HR Consultant Wiltshire | Supporting small businesses with practical, person centred HR | Working alongside managers to keep on top of people challenges.";
+  assert.equal(role.length, 220);
+  assert.equal(strategy.linkedInFirstMessageFamily({ role, company: null }), "hr_consultant");
+  const message = strategy.linkedInDayZeroMessage({ name: "Louise", role, company: null });
+  assert.match(message, /^Hi Louise — thanks for connecting\./);
+  assert.match(message, /independent HR consultants/i);
+});
+test("specialised role limit is 240, General stays capped at 180, and company remains capped at 180", () => {
+  assert.throws(() => strategy.linkedInDayZeroMessage({ name: "Louise", role: `HR Consultant ${"x".repeat(268)}`, company: null }), /Review the recorded professional context/);
+  assert.throws(() => strategy.linkedInDayZeroMessage({ name: "Louise", role: `Director ${"x".repeat(173)}`, company: null }), /Review the recorded professional context/);
+  assert.throws(() => strategy.linkedInDayZeroMessage({ name: "Louise", role: "HR Consultant", company: "x".repeat(181) }), /Review the recorded professional context/);
+});
 test("uncertain and unresolved professional context uses General; stale company fragments never leak", () => {
   const general=strategy.linkedInDayZeroMessage({name:"Keeley"});
   assert.equal(strategy.linkedInFirstMessageFamily({}),"general");

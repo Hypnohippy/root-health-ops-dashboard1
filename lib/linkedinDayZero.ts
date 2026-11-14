@@ -81,7 +81,8 @@ function firstName(context: DayZeroContext) {
 }
 function validateContext(context: DayZeroContext) {
   const role = clean(context.role), company = clean(context.company);
-  if ([role, company].some(value => value.length > 180 || /\p{Extended_Pictographic}/u.test(value) || /[?!\n<>]|https?:|\b(ignore|instructions?|prompt|system|book|demo|pitch)\b|hear your (?:thoughts|perspective)|glad to help|thanks for getting in touch|following up|shared focus|share this space/i.test(value))) {
+  const roleLimit = linkedInFirstMessageFamily(context) === "general" ? 180 : 240;
+  if (role.length > roleLimit || company.length > 180 || [role, company].some(value => /\p{Extended_Pictographic}/u.test(value) || /[?!\n<>]|https?:|\b(ignore|instructions?|prompt|system|book|demo|pitch)\b|hear your (?:thoughts|perspective)|glad to help|thanks for getting in touch|following up|shared focus|share this space/i.test(value))) {
     throw Error("Review the recorded professional context before generating a first message.");
   }
 }

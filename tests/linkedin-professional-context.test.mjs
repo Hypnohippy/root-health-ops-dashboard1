@@ -229,7 +229,7 @@ test('authenticated GET projection and independent draft POST preserve disputed-
   inbox_items:[
    makeAccepted('a1111111-1111-4111-8111-111111111111','Paul','uk.linkedin.com/in/paulmcgrathuk',{canonical_profile_url:'uk.linkedin.com/in/paulmcgrathuk',headline:'Chartered FCIPD HR Consultant & HR Director | Employment Law, Employee Relations, Change Management, HR Strategy, International HR'}),
    makeAccepted('b2222222-2222-4222-8222-222222222222','Gabriela','linkedin.com/in/gabriela-hr',{canonical_profile_url:'linkedin.com/in/gabriela-hr',headline:'HR Generalist'}),
-   makeAccepted('c3333333-3333-4333-8333-333333333333','Louise','linkedin.com/in/louise-hr',{canonical_profile_url:'linkedin.com/in/louise-hr',headline:'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...'}),
+   makeAccepted('c3333333-3333-4333-8333-333333333333','Louise','linkedin.com/in/louise-hr',{canonical_profile_url:'linkedin.com/in/louise-hr',headline:'Multi Award Winning HR | Outsourced HR for UK SMEs | TUPE Expert | HR Consultant Wiltshire | Supporting small businesses with practical, person centred HR | Working alongside managers to keep on top of people challenges.'}),
    makeAccepted('d4444444-4444-4444-8444-444444444444','Vicky Smith','linkedin.com/in/vicky-no-role',{canonical_profile_url:'linkedin.com/in/vicky-no-role'}),
   ],growth_targets:[],acquisition_items:[
    {id:'e5555555-5555-4555-8555-555555555555',organisation_id:org,person:'Gabriela',source_url:'https://www.linkedin.com/in/gabriela-hr',metadata:{headline:'HR Generalist'}},
@@ -266,7 +266,8 @@ test('authenticated GET projection and independent draft POST preserve disputed-
  assert.equal(items.get('Paul').professionalContextStatus.state,'available');
  assert.equal(items.get('Gabriela').role,'HR Generalist');
  assert.equal(family(items.get('Gabriela').context),'people_leader');
- assert.equal(items.get('Louise').role,'Multi Award Winning HR I Outsourced HR for UK SMEs I TUPE Expert I HR Consultant Wiltshire ...');
+ assert.equal(items.get('Louise').role,'Multi Award Winning HR | Outsourced HR for UK SMEs | TUPE Expert | HR Consultant Wiltshire | Supporting small businesses with practical, person centred HR | Working alongside managers to keep on top of people challenges.');
+ assert.equal(items.get('Louise').company,null);
  assert.equal(family(items.get('Louise').context),'hr_consultant');
  assert.equal(items.get('Vicky Smith').role,null);
  assert.equal(family(items.get('Vicky Smith').context),'general');
