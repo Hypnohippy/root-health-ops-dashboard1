@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { googleEventId, googleCalendarRange, projectGoogleEvent, rootGoogleEventBody, type GoogleCalendarAppointment } from "@/lib/diaryGoogleCalendar";
 
 type ConnectionRow = { organisation_id: string; owner_user_id: string; google_account_id: string; google_email: string | null; calendar_id: string; refresh_token_ciphertext: string; refresh_token_iv: string; refresh_token_tag: string };
-type CalendarCredentialErrorCode = "google_calendar_client_id_missing" | "google_calendar_client_secret_missing" | "google_calendar_redirect_uri_missing" | "refresh_token_fields_missing" | "token_encryption_key_missing" | "token_encryption_key_invalid" | "refresh_token_decryption_failed";
+type CalendarCredentialErrorCode = "google_calendar_client_id_missing" | "google_calendar_client_secret_missing" | "refresh_token_fields_missing" | "token_encryption_key_missing" | "token_encryption_key_invalid" | "refresh_token_decryption_failed";
 class CalendarCredentialSetupError extends Error {
   constructor(readonly safeCode: CalendarCredentialErrorCode) { super("Google Calendar credentials are not ready."); }
 }
@@ -80,11 +80,12 @@ async function connectionFor(organisationId: string): Promise<ConnectionRow | nu
   return (data || null) as ConnectionRow | null;
 }
 function calendarClient(row: ConnectionRow) {
-  const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim(), clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim(), redirect = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim();
+  const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim(), clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim();
   if (!clientId) throw new CalendarCredentialSetupError("google_calendar_client_id_missing");
   if (!clientSecret) throw new CalendarCredentialSetupError("google_calendar_client_secret_missing");
-  if (!redirect) throw new CalendarCredentialSetupError("google_calendar_redirect_uri_missing");
-  const auth = new google.auth.OAuth2(clientId, clientSecret, redirect);
+  // Existing refresh-token API calls do not perform an authorization redirect.
+  // Redirect URIs remain required by the explicit connect/callback routes only.
+  const auth = new google.auth.OAuth2(clientId, clientSecret);
   auth.setCredentials({ refresh_token: decryptRefreshToken(row) });
   return google.calendar({ version: "v3", auth });
 }

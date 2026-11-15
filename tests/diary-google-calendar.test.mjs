@@ -139,6 +139,16 @@ test("credential diagnostic distinguishes missing Preview OAuth config from encr
   assert.doesNotMatch(JSON.stringify(mismatchResult.diagnostic), /never-return-this-refresh-token|test-secret|test-client/);
 });
 
+test("existing-token Calendar reads do not require an OAuth redirect URI", async () => {
+  const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", h = calendarHarness();
+  await h.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "server-only-refresh" });
+  const serviceWithoutRedirect = h.loadService({ GOOGLE_CALENDAR_REDIRECT_URI: undefined });
+  const result = await serviceWithoutRedirect.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.equal(result.diagnostic.request.outcome, "success");
+  assert.equal(result.diagnostic.request.stage, "events.list");
+  assert.equal(h.listArgs.calendarId, "primary");
+});
+
 test("Diary diagnostic reports exact Root-mirror suppression and possible manual duplicate without linking", async () => {
   const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", start = "2026-11-17T11:00:00.000Z", end = "2026-11-17T11:30:00.000Z";
   const googleModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
