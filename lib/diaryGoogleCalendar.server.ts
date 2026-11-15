@@ -4,6 +4,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { googleEventId, googleCalendarRange, projectGoogleEvent, rootGoogleEventBody, type GoogleCalendarAppointment } from "@/lib/diaryGoogleCalendar";
 
 type ConnectionRow = { organisation_id: string; owner_user_id: string; google_account_id: string; google_email: string | null; calendar_id: string; refresh_token_ciphertext: string; refresh_token_iv: string; refresh_token_tag: string };
+type CalendarCredentialErrorCode = "google_calendar_client_id_missing" | "google_calendar_client_secret_missing" | "google_calendar_redirect_uri_missing" | "refresh_token_fields_missing" | "token_encryption_key_missing" | "token_encryption_key_invalid" | "refresh_token_decryption_failed";
+class CalendarCredentialSetupError extends Error {
+  constructor(readonly safeCode: CalendarCredentialErrorCode) { super("Google Calendar credentials are not ready."); }
+}
 export type CalendarConnectionSummary = { connected: boolean; email: string | null };
 export type CalendarDiagnosticEvent = {
   id: string;
@@ -35,8 +39,9 @@ export type RootMirrorRow = {
 
 function encryptionKey() {
   const raw = process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "";
+  if (!raw.trim()) throw new CalendarCredentialSetupError("token_encryption_key_missing");
   const key = Buffer.from(raw, "base64");
-  if (key.length !== 32) throw new Error("Google Calendar token encryption is not configured.");
+  if (key.length !== 32) throw new CalendarCredentialSetupError("token_encryption_key_invalid");
   return key;
 }
 function encryptRefreshToken(token: string, organisationId: string) {
@@ -46,10 +51,16 @@ function encryptRefreshToken(token: string, organisationId: string) {
   return { refresh_token_ciphertext: ciphertext.toString("base64"), refresh_token_iv: iv.toString("base64"), refresh_token_tag: cipher.getAuthTag().toString("base64") };
 }
 function decryptRefreshToken(row: ConnectionRow) {
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(row.refresh_token_iv, "base64"));
-  decipher.setAAD(Buffer.from(`root-health-google-calendar:v1:${row.organisation_id}`));
-  decipher.setAuthTag(Buffer.from(row.refresh_token_tag, "base64"));
-  return Buffer.concat([decipher.update(Buffer.from(row.refresh_token_ciphertext, "base64")), decipher.final()]).toString("utf8");
+  if (!row.refresh_token_ciphertext || !row.refresh_token_iv || !row.refresh_token_tag) throw new CalendarCredentialSetupError("refresh_token_fields_missing");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(row.refresh_token_iv, "base64"));
+    decipher.setAAD(Buffer.from(`root-health-google-calendar:v1:${row.organisation_id}`));
+    decipher.setAuthTag(Buffer.from(row.refresh_token_tag, "base64"));
+    return Buffer.concat([decipher.update(Buffer.from(row.refresh_token_ciphertext, "base64")), decipher.final()]).toString("utf8");
+  } catch (error) {
+    if (error instanceof CalendarCredentialSetupError) throw error;
+    throw new CalendarCredentialSetupError("refresh_token_decryption_failed");
+  }
 }
 
 export async function storeGoogleCalendarConnection(input: { organisationId: string; ownerUserId: string; accountId: string; email: string | null; refreshToken: string }) {
@@ -70,7 +81,9 @@ async function connectionFor(organisationId: string): Promise<ConnectionRow | nu
 }
 function calendarClient(row: ConnectionRow) {
   const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim(), clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim(), redirect = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim();
-  if (!clientId || !clientSecret || !redirect) throw new Error("Google Calendar is not configured.");
+  if (!clientId) throw new CalendarCredentialSetupError("google_calendar_client_id_missing");
+  if (!clientSecret) throw new CalendarCredentialSetupError("google_calendar_client_secret_missing");
+  if (!redirect) throw new CalendarCredentialSetupError("google_calendar_redirect_uri_missing");
   const auth = new google.auth.OAuth2(clientId, clientSecret, redirect);
   auth.setCredentials({ refresh_token: decryptRefreshToken(row) });
   return google.calendar({ version: "v3", auth });
@@ -138,8 +151,9 @@ export async function readGoogleCalendar(organisationId: string, from: string, t
     return { connection: { connected: false, email: null }, events: [], unavailable: false, ...(diagnostic ? { diagnostic } : {}) };
   }
   let calendar: ReturnType<typeof google.calendar>;
-  try { calendar = calendarClient(row); } catch {
-    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "failed", stage: "credential_setup", statusCode: null, errorCode: "calendar_configuration_or_token_decryption_failed", eventsReturnedCount: 0, ...range }, row.google_email, row.calendar_id) : undefined;
+  try { calendar = calendarClient(row); } catch (error) {
+    const safeCode = error instanceof CalendarCredentialSetupError ? error.safeCode : "credential_setup_failed";
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "failed", stage: "credential_setup", statusCode: null, errorCode: safeCode, eventsReturnedCount: 0, ...range }, row.google_email, row.calendar_id) : undefined;
     return { connection: { connected: true, email: row.google_email }, events: [], unavailable: true, ...(diagnostic ? { diagnostic } : {}) };
   }
   try {

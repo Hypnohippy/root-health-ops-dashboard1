@@ -66,8 +66,9 @@ function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "
   class OAuth2 { setCredentials(value) { this.credentials = value; } }
   const google = { auth: { OAuth2 }, calendar: () => calendar };
   const calendarModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
-  const service = load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": calendarModel }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback" } });
-  return { db, events, calendar, service, googleEventId: calendarModel.googleEventId, operations, deliveredUpdates, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get patchCalls() { return patchCalls; }, get listArgs() { return listArgs; }, set conferenceStatus(value) { conferenceStatus = value; }, set staleNextPatch(value) { staleNextPatch = value; } };
+  const loadService = (envOverrides = {}) => load("lib/diaryGoogleCalendar.server.ts", { googleapis: { google }, "@/lib/supabaseAdmin": { supabaseAdmin }, "@/lib/diaryGoogleCalendar": calendarModel }, { env: { GOOGLE_CALENDAR_CLIENT_ID: "test-client", GOOGLE_CALENDAR_CLIENT_SECRET: "test-secret", GOOGLE_CALENDAR_REDIRECT_URI: "https://app.test/callback", ...envOverrides } });
+  const service = loadService();
+  return { db, events, calendar, service, loadService, googleEventId: calendarModel.googleEventId, operations, deliveredUpdates, get insertCalls() { return insertCalls; }, get updateCalls() { return updateCalls; }, get patchCalls() { return patchCalls; }, get listArgs() { return listArgs; }, set conferenceStatus(value) { conferenceStatus = value; }, set staleNextPatch(value) { staleNextPatch = value; } };
 }
 
 const row = (org = "org-1") => ({ id: "apt-1", organisation_id: org, title: "Planning", starts_at: "2026-10-25T10:00:00Z", ends_at: "2026-10-25T10:30:00Z", start_date: null, end_date: null, timezone: "Europe/London", all_day: false, location: "London", meeting_url: "https://calls.example/existing", notes: "Discuss plan", status: "confirmed", google_calendar_sync_enabled: false, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null, google_meet_enabled: false, google_meet_request_id: null, google_meet_url: null, google_calendar_attendee_email: null });
@@ -114,6 +115,28 @@ test("inbound diagnostic reports projection exclusions and safe API failure cate
   const failure = await denied.service.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
   assert.deepEqual(JSON.parse(JSON.stringify(failure.diagnostic.request)), { outcome: "failed", stage: "events.list", statusCode: 403, errorCode: "permission_denied", eventsReturnedCount: 0, timeMin: "2026-11-17T00:00:00.000Z", timeMax: "2026-11-18T00:00:00.000Z" });
   assert.doesNotMatch(JSON.stringify(failure.diagnostic), /provider response body|server-only-refresh/);
+});
+
+test("credential diagnostic distinguishes missing Preview OAuth config from encrypted-token failures without exposing secrets", async () => {
+  const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+
+  const missingSecret = calendarHarness();
+  await missingSecret.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "never-return-this-refresh-token" });
+  const missingSecretService = missingSecret.loadService({ GOOGLE_CALENDAR_CLIENT_SECRET: undefined });
+  const missingSecretResult = await missingSecretService.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.equal(missingSecretResult.diagnostic.request.stage, "credential_setup");
+  assert.equal(missingSecretResult.diagnostic.request.errorCode, "google_calendar_client_secret_missing");
+  assert.equal(missingSecret.listArgs, undefined, "missing OAuth config fails before events.list");
+  assert.doesNotMatch(JSON.stringify(missingSecretResult.diagnostic), /never-return-this-refresh-token|test-secret|test-client/);
+
+  const mismatch = calendarHarness();
+  await mismatch.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "never-return-this-refresh-token" });
+  const mismatchService = mismatch.loadService({ GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 8).toString("base64") });
+  const mismatchResult = await mismatchService.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.equal(mismatchResult.diagnostic.request.stage, "credential_setup");
+  assert.equal(mismatchResult.diagnostic.request.errorCode, "refresh_token_decryption_failed");
+  assert.equal(mismatch.listArgs, undefined, "failed token authentication fails before events.list");
+  assert.doesNotMatch(JSON.stringify(mismatchResult.diagnostic), /never-return-this-refresh-token|test-secret|test-client/);
 });
 
 test("Diary diagnostic reports exact Root-mirror suppression and possible manual duplicate without linking", async () => {
