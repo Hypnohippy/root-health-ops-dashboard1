@@ -26,7 +26,7 @@ test("Calendar projection preserves all-day dates, video links and UK DST-safe b
   assert.equal(model.googleEventId("org", "appointment"), model.googleEventId("org", "appointment"));
 });
 
-function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "success", staleFirstPatch = false } = {}) {
+function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "success", staleFirstPatch = false, listError = null } = {}) {
   const db = { connection: null, appointments: new Map(), queriedTables: [] };
   class Query {
     constructor(table) { this.table = table; this.filters = {}; this.fields = {}; }
@@ -56,7 +56,7 @@ function calendarHarness({ loseFirstInsertResponse = false, conferenceStatus = "
     return event;
   };
   const calendar = { events: {
-    async list(args) { listArgs = args; return { data: { items: [...events.values()] } }; },
+    async list(args) { listArgs = args; if (listError) throw listError; return { data: { items: [...events.values()] } }; },
     async insert({ requestBody, sendUpdates, conferenceDataVersion }) { insertCalls++; operations.push({ kind: "insert", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); if (events.has(requestBody.id)) throw { code: 409 }; const created = withConference({ ...structuredClone(requestBody), etag: "etag-1" }, requestBody.conferenceData?.createRequest); events.set(requestBody.id, created); if (loseFirstInsertResponse && insertCalls === 1) throw { code: 503 }; return { data: structuredClone(created) }; },
     async get({ eventId }) { const event = events.get(eventId); if (!event) throw { code: 404 }; return { data: structuredClone(event) }; },
     async update({ eventId, requestBody, sendUpdates, conferenceDataVersion }, options) { updateCalls++; const current = events.get(eventId); assert.equal(options?.headers?.["If-Match"], current.etag); operations.push({ kind: "update", sendUpdates, conferenceDataVersion, requestId: requestBody.conferenceData?.createRequest?.requestId, requestBody: structuredClone(requestBody) }); const updated = { ...structuredClone(requestBody), etag: `etag-${updateCalls + 1}` }; if (requestBody.conferenceData?.createRequest) withConference(updated, requestBody.conferenceData.createRequest); else if (requestBody.conferenceData && Object.keys(requestBody.conferenceData).length === 0) { updated.conferenceData = null; updated.hangoutLink = null; } events.set(eventId, updated); return { data: structuredClone(updated) }; },
@@ -80,6 +80,71 @@ test("native events are a read-only Calendar projection with recurring occurrenc
   assert.equal(result.connection.connected, true); assert.equal(result.events[0].title, "Recurring stand-up");
   assert.equal(h.listArgs.singleEvents, true); assert.equal(h.listArgs.orderBy, "startTime");
   assert.equal(h.db.queriedTables.includes("appointments"), false, "Calendar display does not create or query Root appointment rows");
+});
+
+test("Preview inbound diagnostic uses the actual event list and projects only the two supplied targets", async () => {
+  const h = calendarHarness(), organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+  await h.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "server-only-refresh" });
+  h.events.set("1pmc3iet3dt32c86paqf25216a", { id: "1pmc3iet3dt32c86paqf25216a", status: "confirmed", organizer: { email: "david@fuelgeist.co.uk" }, summary: "Private event A title", start: { dateTime: "2026-11-17T11:00:00Z" }, end: { dateTime: "2026-11-17T11:30:00Z" } });
+  h.events.set("krystie-booking-event", { id: "krystie-booking-event", status: "confirmed", organizer: { email: "krystie.jacobs@pinnaclewellbeingservices.com" }, summary: "Private event B title", description: "Private event description", start: { dateTime: "2026-11-17T11:00:00Z" }, end: { dateTime: "2026-11-17T11:30:00Z" } });
+  h.events.set("unrelated-event", { id: "unrelated-event", summary: "Unrelated private event", start: { dateTime: "2026-11-17T12:00:00Z" }, end: { dateTime: "2026-11-17T12:30:00Z" } });
+
+  const result = await h.service.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.equal(result.diagnostic.accountEmail, "david@fuelgeist.co.uk");
+  assert.equal(result.diagnostic.calendarId, "primary");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.diagnostic.request)), { outcome: "success", stage: "events.list", statusCode: 200, errorCode: null, eventsReturnedCount: 3, timeMin: "2026-11-17T00:00:00.000Z", timeMax: "2026-11-18T00:00:00.000Z" });
+  assert.equal(JSON.stringify(result.diagnostic.targetEvents.map(event => event.id).sort()), JSON.stringify(["1pmc3iet3dt32c86paqf25216a", "krystie-booking-event"]));
+  assert.equal(result.diagnostic.targetEvents.find(event => event.id === "krystie-booking-event").projected, true);
+  assert.equal(h.listArgs.calendarId, "primary");
+  const safe = JSON.stringify(result.diagnostic);
+  assert.doesNotMatch(safe, /Private event|Unrelated private event|server-only-refresh/);
+  assert.equal(await h.service.readGoogleCalendar("another-org", "2026-11-17", "2026-11-18", { includeDiagnostic: true }).then(value => value.diagnostic), undefined, "diagnostic capture is organisation-scoped");
+});
+
+test("inbound diagnostic reports projection exclusions and safe API failure categories", async () => {
+  const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", h = calendarHarness();
+  await h.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "server-only-refresh" });
+  h.events.set("1pmc3iet3dt32c86paqf25216a", { id: "1pmc3iet3dt32c86paqf25216a", status: "cancelled", organizer: { email: "david@fuelgeist.co.uk" } });
+  const cancelled = await h.service.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.equal(cancelled.diagnostic.targetEvents[0].projected, false);
+  assert.equal(cancelled.diagnostic.targetEvents[0].projectionReason, "cancelled");
+
+  const denied = calendarHarness({ listError: { code: 403, message: "do not reveal this provider response body" } });
+  await denied.service.storeGoogleCalendarConnection({ organisationId, ownerUserId: "user-1", accountId: "google-1", email: "david@fuelgeist.co.uk", refreshToken: "server-only-refresh" });
+  const failure = await denied.service.readGoogleCalendar(organisationId, "2026-11-17", "2026-11-18", { includeDiagnostic: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(failure.diagnostic.request)), { outcome: "failed", stage: "events.list", statusCode: 403, errorCode: "permission_denied", eventsReturnedCount: 0, timeMin: "2026-11-17T00:00:00.000Z", timeMax: "2026-11-18T00:00:00.000Z" });
+  assert.doesNotMatch(JSON.stringify(failure.diagnostic), /provider response body|server-only-refresh/);
+});
+
+test("Diary diagnostic reports exact Root-mirror suppression and possible manual duplicate without linking", async () => {
+  const organisationId = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1", start = "2026-11-17T11:00:00.000Z", end = "2026-11-17T11:30:00.000Z";
+  const googleModel = load("lib/diaryGoogleCalendar.ts", { "@/lib/diaryAppointments": load("lib/diaryAppointments.ts") });
+  const events = [
+    { id: "1pmc3iet3dt32c86paqf25216a", calendarId: "primary", title: "Other title", startsAt: start, endsAt: end, startDate: null, endDate: null, timezone: "UTC", allDay: false, location: null, meetingUrl: null, source: "google_calendar" },
+    { id: "krystie-booking-event", calendarId: "primary", title: "Discovery Meeting Krystie", startsAt: start, endsAt: end, startDate: null, endDate: null, timezone: "UTC", allDay: false, location: null, meetingUrl: null, source: "google_calendar" },
+  ];
+  const calendarDiagnostic = { accountEmail: "david@fuelgeist.co.uk", calendarId: "primary", request: { outcome: "success", stage: "events.list", statusCode: 200, errorCode: null, eventsReturnedCount: 2 }, targetEvents: events.map(event => ({ id: event.id, organizerEmail: event.id.startsWith("krystie") ? "krystie.jacobs@pinnaclewellbeingservices.com" : "david@fuelgeist.co.uk", status: "confirmed", startsAt: start, endsAt: end, projected: true, projectionReason: null })) };
+  const rows = [
+    { id: "root-mirror", organisation_id: organisationId, title: "Mirror", starts_at: start, ends_at: end, start_date: null, end_date: null, timezone: "UTC", all_day: false, location: null, meeting_url: null, notes: "never include this note", status: "confirmed", source: "ops_manual", revision: 1, created_at: start, updated_at: start, cancelled_at: null, google_calendar_id: "primary", google_calendar_event_id: "1pmc3iet3dt32c86paqf25216a", google_calendar_etag: null },
+    { id: "manual-krystie", organisation_id: organisationId, title: "Discovery Meeting Krystie", starts_at: start, ends_at: end, start_date: null, end_date: null, timezone: "UTC", all_day: false, location: null, meeting_url: null, notes: "private manual note", status: "confirmed", source: "ops_manual", revision: 1, created_at: start, updated_at: start, cancelled_at: null, google_calendar_id: null, google_calendar_event_id: null, google_calendar_etag: null },
+  ];
+  const diary = load("lib/diary.server.ts", {
+    "@/lib/diary": { diaryDay: () => "2026-11-17", diaryLabel: () => "", diaryShift: () => "2026-11-17", diaryWeek: () => [] },
+    "@/lib/operationalIntelligence.server": { readOperationalCollection: async () => ({ records: [] }) },
+    "@/lib/operationalWork": { buildOperationalWork: () => ({ asOf: start, today: "2026-11-17", timezone: "Europe/London", items: [] }) },
+    "@/lib/diaryAppointments.server": { readDiaryAppointments: async id => { assert.equal(id, organisationId); return rows; } },
+    "@/lib/diaryGoogleCalendar.server": { readGoogleCalendar: async (id, from, to, options) => { assert.equal(id, organisationId); assert.equal(from, "2026-11-17"); assert.equal(to, "2026-11-18"); assert.equal(options.includeDiagnostic, true); return { connection: { connected: true, email: "david@fuelgeist.co.uk" }, events, unavailable: false, diagnostic: calendarDiagnostic }; } },
+    "@/lib/diaryGoogleCalendar": googleModel,
+    "@/lib/diaryAppointments": load("lib/diaryAppointments.ts"),
+  });
+  const result = await diary.readDiary({ organisationId }, { from: "2026-11-17", to: "2026-11-18" }, { calendarDiagnostic: true });
+  assert.deepEqual(result.googleCalendarEvents.map(event => event.id), ["krystie-booking-event"], "only the exact Root-mirror event ID is suppressed");
+  assert.equal(result.calendarDiagnostic.targetEvents.find(event => event.id === "1pmc3iet3dt32c86paqf25216a").displayDecision, "suppressed_exact_root_mirror");
+  const external = result.calendarDiagnostic.targetEvents.find(event => event.id === "krystie-booking-event");
+  assert.equal(external.displayDecision, "displayed");
+  assert.equal(JSON.stringify(external.matchingAppointments), JSON.stringify([{ appointmentId: "manual-krystie", exactStartEndMatch: true, exactTitleMatch: true, exactGoogleMirrorReference: false, identityConfirmed: false, reviewOnly: true }]));
+  assert.doesNotMatch(JSON.stringify(result.calendarDiagnostic), /private manual note|never include this note|Discovery Meeting Krystie/);
+  assert.equal(rows.length, 2, "diagnostic does not alter or merge appointment records");
 });
 
 test("Root mirror retries reuse one deterministic event and edits update that exact ID", async () => {

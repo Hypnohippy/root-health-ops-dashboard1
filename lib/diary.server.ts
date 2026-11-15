@@ -6,16 +6,42 @@ import type { GuideAnswer } from "@/lib/rootCoachGuide";
 import { readDiaryAppointments } from "@/lib/diaryAppointments.server";
 import { readGoogleCalendar } from "@/lib/diaryGoogleCalendar.server";
 import { addDateDays, validDate } from "@/lib/diaryAppointments";
-export async function readDiary(tenant:RelationshipTenant, range?: { from?: string; to?: string }):Promise<DiarySnapshotWithAppointments>{
+export async function readDiary(tenant:RelationshipTenant, range?: { from?: string; to?: string }, options: { calendarDiagnostic?: boolean } = {}):Promise<DiarySnapshotWithAppointments & { calendarDiagnostic?: Record<string, unknown> }>{
  const [collection,rows]=await Promise.all([readOperationalCollection(tenant),readDiaryAppointments(tenant.organisationId)]);
  const snapshot=buildOperationalWork(collection),relationships=new Map<string,{person:string;company:string|null;href:string}>();
  for(const record of collection.records){const id=record.workspace?.id;if(typeof id!="string"||record.intelligence.identity.humanReviewRequired)continue;relationships.set(id,{person:record.relationship.name,company:record.relationship.company||null,href:`/dashboard/growth/relationships/workspace_${id}?organisationId=${encodeURIComponent(tenant.organisationId)}`});}
  const appointments=rows.map(row=>({id:row.id,title:row.title,startsAt:row.starts_at,endsAt:row.ends_at,startDate:row.start_date,endDate:row.end_date,timezone:row.timezone,allDay:row.all_day,location:row.location,meetingUrl:row.meeting_url,notes:row.notes,status:row.status,source:row.source,revision:Number(row.revision),createdAt:row.created_at,updatedAt:row.updated_at,cancelledAt:row.cancelled_at,googleCalendarSyncEnabled:row.google_calendar_sync_enabled===true,googleCalendarMirrored:!!row.google_calendar_event_id,googleCalendarSyncedAt:row.google_calendar_synced_at||null,googleCalendarSyncPending:row.google_calendar_sync_pending===true,googleMeetEnabled:row.google_meet_enabled===true,googleMeetUrl:row.google_meet_url||null,googleCalendarAttendeeEmail:row.google_calendar_attendee_email||null,relationship:row.relationship_id&&relationships.has(row.relationship_id)?({id:row.relationship_id,...relationships.get(row.relationship_id)!}):null}));
  const from=range?.from||snapshot.today,to=range?.to||addDateDays(from,31);
  if(!validDate(from)||!validDate(to)||to<=from||Date.parse(`${to}T00:00:00Z`)-Date.parse(`${from}T00:00:00Z`)>63*86400000)throw new Error("Choose a valid Diary date range of up to 63 days.");
- const calendar=await readGoogleCalendar(tenant.organisationId,from,to);
+ const calendar=await readGoogleCalendar(tenant.organisationId,from,to,{includeDiagnostic:options.calendarDiagnostic});
  const mirroredIds=new Set(rows.filter(row=>row.google_calendar_id&&row.google_calendar_event_id).map(row=>`${row.google_calendar_id}:${row.google_calendar_event_id}`));
- return {...snapshot,appointments,googleCalendarEvents:calendar.events.filter(event=>!mirroredIds.has(`${event.calendarId}:${event.id}`)),googleCalendar:{...calendar.connection,unavailable:calendar.unavailable}};
+ const googleCalendarEvents=calendar.events.filter(event=>!mirroredIds.has(`${event.calendarId}:${event.id}`));
+ const result={...snapshot,appointments,googleCalendarEvents,googleCalendar:{...calendar.connection,unavailable:calendar.unavailable}};
+ if(!options.calendarDiagnostic)return result;
+ const targetEvents=(calendar.diagnostic?.targetEvents||[]).map(candidate=>{
+  const projected=calendar.events.find(event=>event.id===candidate.id&&event.calendarId===(calendar.diagnostic?.calendarId||""));
+  const exactMirrorRows=rows.filter(row=>row.google_calendar_id===calendar.diagnostic?.calendarId&&row.google_calendar_event_id===candidate.id);
+  const displayDecision=!candidate.projected?"not_projected":exactMirrorRows.length?"suppressed_exact_root_mirror":"displayed";
+  const sameInstant=(left:string|null|undefined,right:string|null|undefined)=>!!left&&!!right&&Number.isFinite(Date.parse(left))&&Number.isFinite(Date.parse(right))&&Date.parse(left)===Date.parse(right);
+  const normalizeTitle=(value:string)=>value.trim().toLocaleLowerCase("en-GB").replace(/\s+/g," ");
+  const matchingAppointments=rows.filter(row=>row.status!=="cancelled").flatMap(row=>{
+   if(row.google_calendar_id&&row.google_calendar_event_id)return [];
+   const sameTime=sameInstant(row.starts_at,candidate.startsAt)&&sameInstant(row.ends_at,candidate.endsAt);
+   const sameTitle=!!projected&&normalizeTitle(row.title)===normalizeTitle(projected.title);
+   if(!sameTime&&!sameTitle)return [];
+   return [{appointmentId:row.id,exactStartEndMatch:sameTime,exactTitleMatch:sameTitle,exactGoogleMirrorReference:false,identityConfirmed:false,reviewOnly:true}];
+  });
+  return {...candidate,displayDecision,matchingAppointments};
+ });
+ const externalBookingCount=targetEvents.filter(event=>event.organizerEmail?.toLowerCase()==="krystie.jacobs@pinnaclewellbeingservices.com").length;
+ const selfOrganisedEvent=targetEvents.find(event=>event.id==="1pmc3iet3dt32c86paqf25216a");
+ const diagnostic={
+  readOnly:true,organisationId:tenant.organisationId,accountEmail:calendar.diagnostic?.accountEmail||null,calendarId:calendar.diagnostic?.calendarId||null,
+  request:calendar.diagnostic?.request||null,
+  expectedTargets:{selfOrganisedEvent:{eventId:"1pmc3iet3dt32c86paqf25216a",result:calendar.diagnostic?.request.outcome==="success"?(selfOrganisedEvent?"returned":"not_returned"):"not_checked"},krystieBooking:{organizerEmail:"krystie.jacobs@pinnaclewellbeingservices.com",start:"2026-11-17T11:00:00.000Z",end:"2026-11-17T11:30:00.000Z",result:calendar.diagnostic?.request.outcome==="success"?(externalBookingCount?"returned":"not_returned"):"not_checked",candidateCount:externalBookingCount}},
+  targetEvents,
+ };
+ return {...result,calendarDiagnostic:diagnostic};
 }
 export async function diaryAnswer(tenant:RelationshipTenant,intent:DiaryIntent,question?:string,reason?:(question:string,evidence:string,intent:"factual"|"interpretive")=>Promise<string>):Promise<GuideAnswer>{
  const link={id:"diary" as const,label:"Diary",href:`/dashboard/diary?organisationId=${encodeURIComponent(tenant.organisationId)}`};

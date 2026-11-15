@@ -5,7 +5,24 @@ import { googleEventId, googleCalendarRange, projectGoogleEvent, rootGoogleEvent
 
 type ConnectionRow = { organisation_id: string; owner_user_id: string; google_account_id: string; google_email: string | null; calendar_id: string; refresh_token_ciphertext: string; refresh_token_iv: string; refresh_token_tag: string };
 export type CalendarConnectionSummary = { connected: boolean; email: string | null };
-export type CalendarReadResult = { connection: CalendarConnectionSummary; events: GoogleCalendarAppointment[]; unavailable: boolean };
+export type CalendarDiagnosticEvent = {
+  id: string;
+  organizerEmail: string | null;
+  status: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  projected: boolean;
+  projectionReason: "cancelled" | "missing_id" | "missing_time" | null;
+};
+export type CalendarReadDiagnostic = {
+  accountEmail: string | null;
+  calendarId: string | null;
+  request: { outcome: "success" | "not_connected" | "failed"; stage: "connection_lookup" | "credential_setup" | "events.list" | null; statusCode: number | null; errorCode: string | null; eventsReturnedCount: number; timeMin: string; timeMax: string };
+  targetEvents: CalendarDiagnosticEvent[];
+};
+export type CalendarReadResult = { connection: CalendarConnectionSummary; events: GoogleCalendarAppointment[]; unavailable: boolean; diagnostic?: CalendarReadDiagnostic };
+export const DIARY_CALENDAR_DIAGNOSTIC_ORGANISATION_ID = "78fa2ac8-e7b6-4b9b-9604-035723ece6b1";
+export const DIARY_CALENDAR_DIAGNOSTIC_BRANCH = "codex/google-calendar-inbound-discovery";
 export type RootMirrorRow = {
   id: string; organisation_id: string; title: string; starts_at: string | null; ends_at: string | null;
   start_date: string | null; end_date: string | null; timezone: string; all_day: boolean; location: string | null;
@@ -62,21 +79,93 @@ export async function getGoogleCalendarConnection(organisationId: string): Promi
   try { const row = await connectionFor(organisationId); return { connected: !!row, email: row?.google_email || null }; }
   catch { return { connected: false, email: null }; }
 }
-export async function readGoogleCalendar(organisationId: string, from: string, to: string): Promise<CalendarReadResult> {
+const INBOUND_DIAGNOSTIC_EVENT_ID = "1pmc3iet3dt32c86paqf25216a";
+const INBOUND_DIAGNOSTIC_EXTERNAL_ORGANISER = "krystie.jacobs@pinnaclewellbeingservices.com";
+const INBOUND_DIAGNOSTIC_START = Date.parse("2026-11-17T11:00:00.000Z");
+const INBOUND_DIAGNOSTIC_END = Date.parse("2026-11-17T11:30:00.000Z");
+
+function safeCalendarApiError(error: unknown) {
+  const statusCode = providerStatus(error);
+  const errorCode = statusCode === 401 ? "authentication_failed"
+    : statusCode === 403 ? "permission_denied"
+      : statusCode === 404 ? "calendar_not_found"
+        : statusCode === 429 ? "rate_limited"
+          : statusCode !== undefined && statusCode >= 500 ? "provider_unavailable"
+            : statusCode !== undefined ? "provider_error" : "network_or_provider_error";
+  return { statusCode: statusCode ?? null, errorCode };
+}
+
+function calendarDiagnosticProjectionReason(event: Record<string, unknown>) {
+  if (event.status === "cancelled") return "cancelled" as const;
+  if (typeof event.id !== "string" || !event.id) return "missing_id" as const;
+  const start = event.start as { date?: unknown; dateTime?: unknown } | undefined;
+  const end = event.end as { date?: unknown; dateTime?: unknown } | undefined;
+  if (!start || !end || (!start.date && !start.dateTime) || (!end.date && !end.dateTime)) return "missing_time" as const;
+  return null;
+}
+
+function diagnosticCandidate(event: Record<string, unknown>): CalendarDiagnosticEvent | null {
+  const id = typeof event.id === "string" ? event.id : "";
+  const start = event.start as { date?: unknown; dateTime?: unknown } | undefined;
+  const end = event.end as { date?: unknown; dateTime?: unknown } | undefined;
+  const startsAt = typeof start?.dateTime === "string" ? start.dateTime : typeof start?.date === "string" ? start.date : null;
+  const endsAt = typeof end?.dateTime === "string" ? end.dateTime : typeof end?.date === "string" ? end.date : null;
+  const organiser = event.organizer as { email?: unknown } | undefined;
+  const organizerEmail = typeof organiser?.email === "string" ? organiser.email.toLowerCase() : null;
+  const sameExternalBooking = organizerEmail === INBOUND_DIAGNOSTIC_EXTERNAL_ORGANISER
+    && Date.parse(startsAt || "") === INBOUND_DIAGNOSTIC_START
+    && Date.parse(endsAt || "") === INBOUND_DIAGNOSTIC_END;
+  if (!id || (id !== INBOUND_DIAGNOSTIC_EVENT_ID && !sameExternalBooking)) return null;
+  const projectionReason = calendarDiagnosticProjectionReason(event);
+  const safeId = /^[a-z0-9_-]{1,256}$/i.test(id) ? id : "unavailable";
+  return {
+    id: safeId, organizerEmail, status: typeof event.status === "string" ? event.status : null,
+    startsAt, endsAt, projected: projectionReason === null, projectionReason,
+  };
+}
+
+export async function readGoogleCalendar(organisationId: string, from: string, to: string, options: { includeDiagnostic?: boolean } = {}): Promise<CalendarReadResult> {
+  const includeDiagnostic = options.includeDiagnostic === true && organisationId === DIARY_CALENDAR_DIAGNOSTIC_ORGANISATION_ID;
+  const range = googleCalendarRange(from, to);
+  const emptyDiagnostic = (request: CalendarReadDiagnostic["request"], accountEmail: string | null = null, calendarId: string | null = null, targetEvents: CalendarDiagnosticEvent[] = []): CalendarReadDiagnostic => ({ accountEmail, calendarId, request, targetEvents });
   let row: ConnectionRow | null;
-  try { row = await connectionFor(organisationId); } catch { return { connection: { connected: false, email: null }, events: [], unavailable: true }; }
-  if (!row) return { connection: { connected: false, email: null }, events: [], unavailable: false };
+  try { row = await connectionFor(organisationId); } catch {
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "failed", stage: "connection_lookup", statusCode: null, errorCode: "connection_unavailable", eventsReturnedCount: 0, ...range }) : undefined;
+    return { connection: { connected: false, email: null }, events: [], unavailable: true, ...(diagnostic ? { diagnostic } : {}) };
+  }
+  if (!row) {
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "not_connected", stage: "connection_lookup", statusCode: null, errorCode: "no_connection", eventsReturnedCount: 0, ...range }) : undefined;
+    return { connection: { connected: false, email: null }, events: [], unavailable: false, ...(diagnostic ? { diagnostic } : {}) };
+  }
+  let calendar: ReturnType<typeof google.calendar>;
+  try { calendar = calendarClient(row); } catch {
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "failed", stage: "credential_setup", statusCode: null, errorCode: "calendar_configuration_or_token_decryption_failed", eventsReturnedCount: 0, ...range }, row.google_email, row.calendar_id) : undefined;
+    return { connection: { connected: true, email: row.google_email }, events: [], unavailable: true, ...(diagnostic ? { diagnostic } : {}) };
+  }
   try {
-    const calendar = calendarClient(row), range = googleCalendarRange(from, to);
     const events: GoogleCalendarAppointment[] = [];
+    const targetEvents: CalendarDiagnosticEvent[] = [];
+    let eventsReturnedCount = 0;
     let pageToken: string | undefined;
     do {
       const response = await calendar.events.list({ calendarId: row.calendar_id, ...range, singleEvents: true, orderBy: "startTime", maxResults: 250, pageToken });
-      for (const event of response.data.items || []) { const projected = projectGoogleEvent(event as Record<string, unknown>, row.calendar_id); if (projected) events.push(projected); }
+      const items = response.data.items || [];
+      eventsReturnedCount += items.length;
+      for (const event of items) {
+        const raw = event as Record<string, unknown>, candidate = includeDiagnostic ? diagnosticCandidate(raw) : null;
+        const projected = projectGoogleEvent(raw, row.calendar_id);
+        if (candidate) targetEvents.push({ ...candidate, projected: !!projected, projectionReason: projected ? null : candidate.projectionReason || "missing_time" });
+        if (projected) events.push(projected);
+      }
       pageToken = response.data.nextPageToken || undefined;
     } while (pageToken && events.length < 1000);
-    return { connection: { connected: true, email: row.google_email }, events, unavailable: false };
-  } catch { return { connection: { connected: true, email: row.google_email }, events: [], unavailable: true }; }
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "success", stage: "events.list", statusCode: 200, errorCode: null, eventsReturnedCount, ...range }, row.google_email, row.calendar_id, targetEvents) : undefined;
+    return { connection: { connected: true, email: row.google_email }, events, unavailable: false, ...(diagnostic ? { diagnostic } : {}) };
+  } catch (error) {
+    const safeError = safeCalendarApiError(error);
+    const diagnostic = includeDiagnostic ? emptyDiagnostic({ outcome: "failed", stage: "events.list", ...safeError, eventsReturnedCount: 0, ...range }, row.google_email, row.calendar_id) : undefined;
+    return { connection: { connected: true, email: row.google_email }, events: [], unavailable: true, ...(diagnostic ? { diagnostic } : {}) };
+  }
 }
 function ownsEvent(event: { id?: string | null; extendedProperties?: { private?: Record<string, string> | null } | null }, row: RootMirrorRow) {
   const privateProps = event.extendedProperties?.private;

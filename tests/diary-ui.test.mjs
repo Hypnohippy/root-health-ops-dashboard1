@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
-function load(file,deps={}) { const mod={exports:{}};const listeners=deps.__windowListeners||new Map();vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,Date,Intl,URL,console,window:{addEventListener:(name,handler)=>listeners.set(name,handler),removeEventListener:(name)=>listeners.delete(name),setTimeout,clearTimeout,confirm:message=>deps.__confirm?deps.__confirm(message):true},document:{addEventListener:()=>{},removeEventListener:()=>{},visibilityState:'visible'},fetch:deps.__fetch || (async()=>Response.json(snapshot)),require:n=>n in deps?deps[n]:n.endsWith('.css')?{}:n==='react'?React:n==='react/jsx-runtime'?jsx:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',deps):n.startsWith('./')?load('app/dashboard/diary/'+n.slice(2)+'.tsx',deps):(()=>{throw Error(n)})()});return mod.exports; }
+function load(file,deps={}) { const mod={exports:{}};const listeners=deps.__windowListeners||new Map();vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{module:mod,exports:mod.exports,Date,Intl,URL,console,window:{addEventListener:(name,handler)=>listeners.set(name,handler),removeEventListener:(name)=>listeners.delete(name),setTimeout,clearTimeout,confirm:message=>deps.__confirm?deps.__confirm(message):true},document:{addEventListener:()=>{},removeEventListener:()=>{},visibilityState:'visible'},navigator:{clipboard:{writeText:text=>deps.__clipboard?deps.__clipboard(text):Promise.resolve()}},fetch:deps.__fetch || (async()=>Response.json(snapshot)),require:n=>n in deps?deps[n]:n.endsWith('.css')?{}:n==='react'?React:n==='react/jsx-runtime'?jsx:n.startsWith('@/lib/')?load(n.replace('@/','')+'.ts',deps):n.startsWith('./')?load('app/dashboard/diary/'+n.slice(2)+'.tsx',deps):(()=>{throw Error(n)})()});return mod.exports; }
 import * as jsx from 'react/jsx-runtime';
 const model=load('lib/diary.ts'),org='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',snapshot={asOf:'2026-10-22T12:00:00Z',today:'2026-10-22',timezone:'Europe/London',items:[{id:'fixture',title:'Controlled follow-up',company:null,at:'2026-10-22T14:00:00Z',dateOnly:false,type:'Follow-up',status:'follow up',action:'Review source',workspace:'Responses',href:'/dashboard/responses?organisationId='+org+'&itemId=fixture',actionable:true,source:{organisationId:org,table:'inbox_items',recordId:'fixture',dateSource:'lifecycle.nextDueDate'}}]};
 const Diary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model}).default;
@@ -214,3 +214,21 @@ test('cancellation dialog has compact mobile-sized actions and Diary source cont
   assert.match(css,/\.diary-cancel-dialog/);assert.match(css,/min-height:44px/);assert.match(css,/max-width:480px/);assert.match(css,/grid-template-columns:1fr/);
 });
 test('relationship detail exposes appointment creation with exact workspace prefill',()=>{const file=fs.readFileSync('app/dashboard/growth/relationships/components/RelationshipDetail.tsx','utf8');assert.match(file,/Create appointment/);assert.match(file,/relationshipId:data\.workspace\.id/);assert.match(file,/relationshipSearch:r\.name/);});
+
+test('Preview calendar diagnostic runs read-only and can be copied; the control is hidden by default',async()=>{
+  const diagnostic={readOnly:true,accountEmail:'david@fuelgeist.co.uk',calendarId:'primary',request:{outcome:'success',eventsReturnedCount:2},expectedTargets:{krystieBooking:{result:'returned'}},targetEvents:[{id:'krystie-booking-event',displayDecision:'displayed',matchingAppointments:[{appointmentId:'manual-krystie',identityConfirmed:false,reviewOnly:true}]}]};
+  let calls=0,copied='',tree;
+  const fetcher=async url=>{calls++;assert.match(url,/calendarDiagnostic=1/);return Response.json(diagnostic);};
+  const TestDiary=load('app/dashboard/diary/Diary.tsx',{'@/lib/diary':model,__fetch:fetcher,__clipboard:async text=>{copied=text;}}).default;
+  await act(async()=>{tree=renderer.create(React.createElement(TestDiary,{organisationId:org,initial:snapshot,calendarDiagnosticEnabled:true}));});
+  const button=name=>tree.root.findAllByType('button').find(candidate=>candidate.props.children===name);
+  assert.ok(button('Run Calendar Diagnostic'));assert.ok(button('Copy Calendar Diagnostic'));
+  await act(async()=>button('Run Calendar Diagnostic').props.onClick());
+  assert.equal(calls,1);assert.match(JSON.stringify(tree.toJSON()),/krystie-booking-event/);
+  await act(async()=>button('Copy Calendar Diagnostic').props.onClick());
+  assert.match(copied,/manual-krystie/);assert.doesNotMatch(copied,/refresh_token|client_secret|event description/);
+  await act(()=>tree.unmount());
+  await act(async()=>{tree=renderer.create(React.createElement(TestDiary,{organisationId:org,initial:snapshot}));});
+  assert.equal(tree.root.findAllByType('button').filter(candidate=>/Calendar Diagnostic/.test(String(candidate.props.children))).length,0);
+  await act(()=>tree.unmount());
+});

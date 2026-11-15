@@ -123,8 +123,9 @@ function AppointmentWorkLanes({ appointmentGroups, workGroups, onEdit, onCancel,
   </div>;
 }
 
-export default function Diary({ organisationId, initial, openCreate = false, prefill = {} }: { organisationId: string; initial: Snapshot; openCreate?: boolean; prefill?: Prefill }) {
+export default function Diary({ organisationId, initial, openCreate = false, prefill = {}, calendarDiagnosticEnabled = false }: { organisationId: string; initial: Snapshot; openCreate?: boolean; prefill?: Prefill; calendarDiagnosticEnabled?: boolean }) {
   const [snapshot, setSnapshot] = useState(initial), [view, setView] = useState<"Today" | "Week" | "Month">("Today"), [day, setDay] = useState(initial.today), [notice, setNotice] = useState(""), [loading, setLoading] = useState(false);
+  const [calendarDiagnosticText, setCalendarDiagnosticText] = useState<string | null>(null), [calendarDiagnosticBusy, setCalendarDiagnosticBusy] = useState(false), [calendarDiagnosticNotice, setCalendarDiagnosticNotice] = useState("");
   const [formOpen, setFormOpen] = useState(openCreate), [editing, setEditing] = useState<DiaryAppointment | null>(null), [cancelling, setCancelling] = useState<DiaryAppointment | null>(null), [cancellationSaving, setCancellationSaving] = useState(false), [cancellationError, setCancellationError] = useState("");
   const noticeTimer = useRef<number | null>(null);
   const cancellationInFlight = useRef(false), cancelTrigger = useRef<HTMLButtonElement | null>(null), keepAppointmentButton = useRef<HTMLButtonElement | null>(null), cancellationErrorElement = useRef<HTMLParagraphElement | null>(null), noticeElement = useRef<HTMLParagraphElement | null>(null);
@@ -141,6 +142,23 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
     catch { showNotice("Diary could not refresh. The previous snapshot remains visible; reopen the source to check current state."); }
     finally { setLoading(false); }
   }, [organisationId, view, day, snapshot.today, showNotice]);
+  async function runCalendarDiagnostic() {
+    if (!calendarDiagnosticEnabled || calendarDiagnosticBusy) return;
+    setCalendarDiagnosticBusy(true); setCalendarDiagnosticNotice("");
+    try {
+      const response = await fetch(`/api/diary?organisationId=${encodeURIComponent(organisationId)}&calendarDiagnostic=1`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "Calendar diagnostic could not be completed.");
+      setCalendarDiagnosticText(JSON.stringify(result, null, 2)); setCalendarDiagnosticNotice("Diagnostic complete. It is read-only and limited to the selected Google events and matching Ops appointment candidates.");
+    } catch (error) {
+      setCalendarDiagnosticText(null); setCalendarDiagnosticNotice(error instanceof Error ? error.message : "Calendar diagnostic could not be completed.");
+    } finally { setCalendarDiagnosticBusy(false); }
+  }
+  async function copyCalendarDiagnostic() {
+    if (!calendarDiagnosticEnabled || !calendarDiagnosticText) return;
+    try { await navigator.clipboard.writeText(calendarDiagnosticText); setCalendarDiagnosticNotice("Calendar diagnostic copied to the clipboard."); }
+    catch { setCalendarDiagnosticNotice("Clipboard access is unavailable. Run the diagnostic again or select its displayed text to copy."); }
+  }
   useEffect(() => () => { if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current); }, []);
   useEffect(() => {
     if (!cancelling) {
@@ -224,6 +242,7 @@ export default function Diary({ organisationId, initial, openCreate = false, pre
   const weekDates = view === "Week" ? diaryWeek(day) : [];
   const selectedDate = appointmentsForDate(day);
   return <main className="diary-root"><header><p className="diary-eyebrow">YOUR DATED OPS WORK</p><h1>Diary</h1><p>Appointments alongside canonical meetings, follow-ups, tasks, waiting and manual history. Each keeps its own source.</p><p className="diary-updated">Europe/London · Updated {diaryLabel(snapshot.asOf, true)}</p><p className="diary-calendar-state"><strong>Google Calendar</strong> · {calendar.connected ? `Connected${calendar.email ? ` as ${calendar.email}` : ""}` : "Not connected"}{!calendar.connected && <a href={`/api/diary/calendar/connect?organisationId=${encodeURIComponent(organisationId)}`}>Connect Google Calendar</a>}</p>{calendar.unavailable && <p className="diary-notice" role="status">Google Calendar could not be refreshed. Root appointments and operational work remain available.</p>}</header>
+    {calendarDiagnosticEnabled && <section className="diary-calendar-diagnostic" aria-labelledby="diary-calendar-diagnostic-heading"><h2 id="diary-calendar-diagnostic-heading">Preview calendar diagnostic</h2><p>Read-only check for the 17 November booking and the exact Google events supplied for this review. No appointment or calendar data is changed.</p><div className="diary-form-actions"><button type="button" disabled={calendarDiagnosticBusy} onClick={() => { void runCalendarDiagnostic(); }}>{calendarDiagnosticBusy ? "Checking calendar…" : "Run Calendar Diagnostic"}</button><button type="button" disabled={!calendarDiagnosticText || calendarDiagnosticBusy} onClick={() => { void copyCalendarDiagnostic(); }}>Copy Calendar Diagnostic</button></div>{calendarDiagnosticNotice && <p role="status">{calendarDiagnosticNotice}</p>}{calendarDiagnosticText && <pre aria-label="Calendar diagnostic results">{calendarDiagnosticText}</pre>}</section>}
     <div className="diary-toolbar"><div role="group" aria-label="Diary view">{(["Today", "Week", "Month"] as const).map(v => <button key={v} aria-pressed={view === v} onClick={() => { setView(v); if (v === "Today") setDay(snapshot.today); }}>{v}</button>)}</div><div className="diary-primary-actions"><button onClick={() => { setEditing(null); setFormOpen(true); }} type="button">+ Add appointment</button><button onClick={() => { void refresh(); }} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div></div>
     {notice && <p ref={noticeElement} role="status" tabIndex={-1} className="diary-notice">{notice}</p>}
     {snapshot.summary && <p className="diary-empty">{snapshot.summary.actionableFollowups} actionable follow-ups · {snapshot.summary.futureFollowups} future follow-ups · {snapshot.summary.repliesNeedingResponse} replies need attention · {snapshot.summary.suppressedFollowups} suppressed follow-ups</p>}
